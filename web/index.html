@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lucerne Traffic Flow Simulator</title>
+
+    <!-- Google Fonts & Leaflet CSS -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+    <!-- Fullscreen Map Canvas -->
+    <div id="map"></div>
+
+    <!-- Glassmorphic Header / Control Bar -->
+    <header class="top-bar glass-panel">
+        <div class="brand">
+            <span class="flag">🇨🇭</span>
+            <div>
+                <h1>Lucerne Traffic Flow Simulator</h1>
+                <p>City-wide Regional Portals & Flow Analysis Engine</p>
+            </div>
+        </div>
+
+        <div class="header-stats">
+            <div class="stat-badge">
+                <span class="stat-label">Active Vehicles</span>
+                <span class="stat-value" id="val-active-count">0</span>
+            </div>
+            <div class="stat-badge">
+                <span class="stat-label">Trips Completed</span>
+                <span class="stat-value" id="val-completed-count">0</span>
+            </div>
+            <div class="stat-badge">
+                <span class="stat-label">Avg Delay (sec)</span>
+                <span class="stat-value" id="val-avg-delay">0.0</span>
+            </div>
+            <div class="stat-badge highlight">
+                <span class="stat-label">Sim Time</span>
+                <span class="stat-value" id="val-sim-time">00:00</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- Left Sidebar: Parameters & Controls -->
+    <aside class="sidebar left-sidebar glass-panel">
+        <div class="sidebar-header">
+            <h2>Simulation Controls</h2>
+        </div>
+
+        <!-- Presets -->
+        <div class="control-group">
+            <label class="group-title">Traffic Scenario Presets</label>
+            <div class="preset-buttons">
+                <button class="btn btn-preset" onclick="applyPreset('morning_peak')">🌅 Morning Peak</button>
+                <button class="btn btn-preset" onclick="applyPreset('tourist_rush')">🏰 Tourist Rush</button>
+                <button class="btn btn-preset" onclick="applyPreset('freight_heavy')">🚛 Freight Heavy</button>
+            </div>
+        </div>
+
+        <hr class="divider" />
+
+        <!-- Simulation Speed & Spawning -->
+        <div class="control-group">
+            <label class="slider-label">
+                <span>Spawn Rate</span>
+                <span id="lbl-spawn-rate" class="badge-val">2.0 veh/s</span>
+            </label>
+            <input type="range" id="slider-spawn-rate" min="0.5" max="10.0" step="0.5" value="2.0" oninput="updateParameters()">
+        </div>
+
+        <div class="control-group">
+            <label class="slider-label">
+                <span>Simulation Speed</span>
+                <span id="lbl-sim-speed" class="badge-val">1.0x</span>
+            </label>
+            <input type="range" id="slider-sim-speed" min="1.0" max="10.0" step="1.0" value="1.0" oninput="updateParameters()">
+        </div>
+
+        <hr class="divider" />
+
+        <!-- Flow Distribution -->
+        <div class="control-group">
+            <label class="group-title">Origin-Destination Flow Split</label>
+            <div class="flow-splits">
+                <div class="split-item">
+                    <span>Internal ↔ Internal</span>
+                    <span id="lbl-flow-internal">50%</span>
+                </div>
+                <div class="split-item">
+                    <span>Inflow (Outside → In)</span>
+                    <span id="lbl-flow-inflow">25%</span>
+                </div>
+                <div class="split-item">
+                    <span>Outflow (In → Outside)</span>
+                    <span id="lbl-flow-outflow">25%</span>
+                </div>
+            </div>
+        </div>
+
+        <hr class="divider" />
+
+        <!-- Traffic Class Mix -->
+        <div class="control-group">
+            <label class="group-title">Traffic Class Proportions</label>
+            
+            <label class="slider-label">
+                <span class="class-tag personal">🚗 Personal Cars</span>
+                <span id="lbl-class-personal" class="badge-val">60%</span>
+            </label>
+            <input type="range" id="slider-class-personal" min="0" max="100" step="5" value="60" oninput="updateClassMix('personal')">
+
+            <label class="slider-label">
+                <span class="class-tag tourism">🚌 Tourism Coaches</span>
+                <span id="lbl-class-tourism" class="badge-val">20%</span>
+            </label>
+            <input type="range" id="slider-class-tourism" min="0" max="100" step="5" value="20" oninput="updateClassMix('tourism')">
+
+            <label class="slider-label">
+                <span class="class-tag logistics">🚚 Freight Trucks</span>
+                <span id="lbl-class-logistics" class="badge-val">10%</span>
+            </label>
+            <input type="range" id="slider-class-logistics" min="0" max="100" step="5" value="10" oninput="updateClassMix('logistics')">
+        </div>
+
+        <div class="sidebar-actions">
+            <button class="btn btn-danger" onclick="resetSimulation()">🔄 Reset Simulation</button>
+        </div>
+    </aside>
+
+    <!-- Right Sidebar: Display Filter Checkboxes & Chokepoint Leaderboard -->
+    <aside class="sidebar right-sidebar glass-panel">
+        
+        <!-- Display / Filter Checkboxes Section -->
+        <div class="sidebar-header">
+            <h2>Map Display Filters</h2>
+        </div>
+
+        <div class="checkbox-group">
+            <label class="group-title">Map Layers</label>
+            <label class="checkbox-item">
+                <input type="checkbox" id="chk-show-pois" checked onchange="toggleLayerVisibility()">
+                <span>📍 Points of Interest (POIs)</span>
+            </label>
+            <label class="checkbox-item">
+                <input type="checkbox" id="chk-show-gateways" checked onchange="toggleLayerVisibility()">
+                <span>🚪 Regional Gateway Portals</span>
+            </label>
+            <label class="checkbox-item">
+                <input type="checkbox" id="chk-show-congestion" checked onchange="toggleLayerVisibility()">
+                <span>🔥 Traffic Congestion Lines</span>
+            </label>
+        </div>
+
+        <div class="checkbox-group">
+            <label class="group-title">Filter Vehicle Classes</label>
+            <label class="checkbox-item">
+                <input type="checkbox" id="chk-veh-personal" checked onchange="toggleLayerVisibility()">
+                <span>🚗 Personal Cars</span>
+            </label>
+            <label class="checkbox-item">
+                <input type="checkbox" id="chk-veh-tourism" checked onchange="toggleLayerVisibility()">
+                <span>🚌 Tourism Coaches</span>
+            </label>
+            <label class="checkbox-item">
+                <input type="checkbox" id="chk-veh-logistics" checked onchange="toggleLayerVisibility()">
+                <span>🚚 Freight Trucks</span>
+            </label>
+            <label class="checkbox-item">
+                <input type="checkbox" id="chk-veh-bus" checked onchange="toggleLayerVisibility()">
+                <span>🚍 Public Buses</span>
+            </label>
+        </div>
+
+        <hr class="divider" />
+
+        <div class="sidebar-header">
+            <h2>Chokepoint Leaderboard</h2>
+        </div>
+
+        <div id="chokepoint-list" class="chokepoint-container">
+            <p class="empty-msg">Calculating live bottleneck index...</p>
+        </div>
+
+        <hr class="divider" />
+
+        <div class="sidebar-header">
+            <h2>Legend & Map Controls</h2>
+        </div>
+
+        <div class="legend-box">
+            <div class="legend-row">
+                <span class="color-dot green"></span>
+                <span>Free Flow (V/C &lt; 0.5)</span>
+            </div>
+            <div class="legend-row">
+                <span class="color-dot yellow"></span>
+                <span>Moderate Traffic (0.5 – 0.8)</span>
+            </div>
+            <div class="legend-row">
+                <span class="color-dot orange"></span>
+                <span>Heavy Traffic (0.8 – 1.0)</span>
+            </div>
+            <div class="legend-row">
+                <span class="color-dot red"></span>
+                <span>Congested Chokepoint (&gt; 1.0)</span>
+            </div>
+            <div class="legend-row">
+                <span class="color-dot purple"></span>
+                <span>Blocked Road Segment</span>
+            </div>
+        </div>
+
+        <div class="hint-box">
+            <p>💡 <strong>Tip:</strong> Uncheck vehicle classes to isolate specific traffic flows (e.g. view only Freight Trucks)! Click any road segment to simulate a temporary road closure.</p>
+        </div>
+    </aside>
+
+    <!-- Leaflet & App JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="/static/app.js"></script>
+</body>
+</html>

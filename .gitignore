@@ -1,0 +1,16 @@
+# Python venv & bytecode
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Data & cache files
+data/lucerne_data_cache.json
+cache/
+
+# Logs & temp
+*.log
+.DS_Store
+.vscode/
+.idea/
