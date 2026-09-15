@@ -112,8 +112,14 @@ async def get_initial_data():
         "gateways": data_loader.gateway_details,
         "aoi_polygon": data_loader.aoi_polygon_coords,
         "bus_lines": engine.bus_transit_manager.get_transit_state(),
-        "signals": engine.signal_manager.get_signals_state()
+        "signals": engine.signal_manager.get_signals_state(),
+        "parking_garages": engine.parking_manager.get_parking_state()
     }
+
+@app.get("/api/parking-garages")
+async def get_parking_garages():
+    """Returns Lucerne major parking garages, capacity, fees, and real-time occupancy."""
+    return engine.parking_manager.get_parking_state()
 
 @app.get("/api/bus-lines")
 async def get_bus_lines():

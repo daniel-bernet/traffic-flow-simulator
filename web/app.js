@@ -11,9 +11,11 @@ let boundaryLayerGroup;
 let previewGatewayLayerGroup;
 let busLineLayerGroup;
 let signalLayerGroup;
+let parkingLayerGroup;
 
 let gatewaysData = [];
 let signalsData = [];
+let parkingGaragesData = [];
 let masterHighspeedEdges = []; // All >30 km/h edges from master graph for live gateway preview
 let aoiPolygonCoords = []; // Current active AOI polygon ring
 let latestBusLinesData = [];
@@ -74,6 +76,7 @@ function initMap() {
     aoiHandleLayerGroup = L.layerGroup().addTo(map);
     busLineLayerGroup = L.layerGroup().addTo(map);
     signalLayerGroup = L.layerGroup().addTo(map);
+    parkingLayerGroup = L.layerGroup().addTo(map);
 
     // Map Click Handler for Gateway placement or AOI Drawing
     map.on('click', async (e) => {
@@ -587,6 +590,11 @@ async function loadInitialData() {
         renderSignalMarkers();
         renderSignalsManagerList();
 
+        // 6. Draw Parking Garages
+        parkingGaragesData = data.parking_garages || [];
+        renderParkingMarkers();
+        renderParkingManagerList();
+
         if (isEditingAOIMode) {
             renderAOIHandles();
         }
@@ -783,9 +791,72 @@ async function updateSignalSplit(signalId, newSplit) {
         if (sig) sig.green_split = parseFloat(newSplit);
         renderSignalMarkers();
         renderSignalsManagerList();
-    } catch (err) {
-        console.error("Failed to update traffic signal split:", err);
+}
+
+// ------------------------------------------
+// Parking Garages Map Markers & Dashboard
+// ------------------------------------------
+
+function renderParkingMarkers() {
+    parkingLayerGroup.clearLayers();
+    const showParking = document.getElementById('chk-show-parking') ? document.getElementById('chk-show-parking').checked : true;
+    if (!showParking) return;
+
+    parkingGaragesData.forEach(p => {
+        const pct = p.occupancy_pct;
+        const color = pct >= 90 ? '#ef4444' : (pct >= 75 ? '#f59e0b' : '#38bdf8');
+
+        const pIcon = L.divIcon({
+            className: 'parking-marker-icon',
+            html: `<div style="background-color:${color}; border:2px solid #ffffff; color:#ffffff; font-weight:bold; font-size:10px; width:20px; height:20px; border-radius:4px; display:flex; align-items:center; justify-content:center; box-shadow:0 0 10px ${color}; cursor:pointer;">P</div>`,
+            iconSize: [20, 20]
+        });
+
+        const marker = L.marker([p.lat, p.lon], { icon: pIcon })
+            .bindPopup(`
+                <div style="font-size:12px;">
+                    <strong>🅿️ ${p.name}</strong><br>
+                    Occupancy: <strong style="color:${color};">${p.occupied} / ${p.capacity} (${p.occupancy_pct}%)</strong><br>
+                    Hourly Fee: CHF ${p.hourly_fee_chf.toFixed(2)}/hr<br>
+                    Barrier Gate Queue: <strong>${p.queue_count} vehicles</strong>
+                </div>
+            `);
+
+        parkingLayerGroup.addLayer(marker);
+    });
+}
+
+function renderParkingManagerList() {
+    const container = document.getElementById('parking-garages-list');
+    if (!container) return;
+
+    if (!parkingGaragesData || parkingGaragesData.length === 0) {
+        container.innerHTML = `<p class="empty-msg">No active parking garages.</p>`;
+        return;
     }
+
+    const valBadge = document.getElementById('val-parking-count');
+    if (valBadge) valBadge.innerText = `${parkingGaragesData.length} Garages`;
+
+    container.innerHTML = parkingGaragesData.map(p => {
+        const pct = p.occupancy_pct;
+        const color = pct >= 90 ? '#ef4444' : (pct >= 75 ? '#f59e0b' : '#10b981');
+        return `
+            <div class="parking-card" onclick="map.panTo([${p.lat}, ${p.lon}])">
+                <div class="parking-card-header">
+                    <span class="park-title" title="${p.name}">${p.name}</span>
+                    <span class="park-occ-tag" style="background-color:${color};">${p.occupied}/${p.capacity}</span>
+                </div>
+                <div class="parking-card-bar">
+                    <div class="parking-bar-fill" style="width:${p.occupancy_pct}%; background-color:${color};"></div>
+                </div>
+                <div class="parking-card-meta">
+                    <span>CHF ${p.hourly_fee_chf.toFixed(2)}/h</span>
+                    <span>Queue: ${p.queue_count} veh</span>
+                </div>
+            </div>
+        `;
+    }).join('');
 }
 
 // WebSocket Live Stream Connection
@@ -838,6 +909,13 @@ function toggleLayerVisibility() {
         if (!map.hasLayer(signalLayerGroup)) map.addLayer(signalLayerGroup);
     } else {
         if (map.hasLayer(signalLayerGroup)) map.removeLayer(signalLayerGroup);
+    }
+
+    const showParking = document.getElementById('chk-show-parking') ? document.getElementById('chk-show-parking').checked : true;
+    if (showParking) {
+        if (!map.hasLayer(parkingLayerGroup)) map.addLayer(parkingLayerGroup);
+    } else {
+        if (map.hasLayer(parkingLayerGroup)) map.removeLayer(parkingLayerGroup);
     }
 
     const showCongestion = document.getElementById('chk-show-congestion').checked;
@@ -985,6 +1063,12 @@ function renderSimulationState(state) {
         signalsData = state.signals;
         renderSignalMarkers();
         renderSignalsManagerList();
+    }
+
+    if (state.parking_garages) {
+        parkingGaragesData = state.parking_garages;
+        renderParkingMarkers();
+        renderParkingManagerList();
     }
 
     const mins = Math.floor(state.sim_time / 60);

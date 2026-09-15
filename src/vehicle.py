@@ -47,12 +47,12 @@ class Vehicle:
         self.origin_id = origin_id
         self.destination_id = destination_id
         self.route_edges = route_edges  # List of edge_id strings
-        
         self.current_edge_idx = 0
         self.distance_on_edge = 0.0  # meters
         self.speed_ms = 0.0          # current velocity m/s
         self.accel_ms2 = 0.0         # current acceleration m/s^2
         self.status = "IN_TRANSIT"
+        self.lane_index = 0          # assigned lane index (0 to lanes-1)
         
         self.lat = 0.0
         self.lon = 0.0
@@ -81,6 +81,11 @@ class Vehicle:
         self.total_travel_time += dt
         edge_length = edge_dict["length"]
         v_limit_ms = (edge_dict["maxspeed"] / 3.6) * self.props["speed_factor"]
+
+        # Ensure valid lane assignment
+        lanes = max(1, edge_dict.get("lanes", 1))
+        if self.lane_index >= lanes:
+            self.lane_index = random.randint(0, lanes - 1)
 
         # IDM Model Constants
         a_max = 2.0        # Max acceleration (m/s^2) ~0 to 50 km/h in 7s
@@ -116,7 +121,7 @@ class Vehicle:
         # Calculate visual coordinates with physical queue spacing offset
         visual_dist = max(0.0, min(edge_length, self.distance_on_edge - queue_offset_m))
         progress_frac = visual_dist / max(1.0, edge_length)
-        self._interpolate_coordinates(edge_dict["geometry"], min(1.0, progress_frac))
+        self._interpolate_coordinates(edge_dict["geometry"], min(1.0, progress_frac), edge_dict)
 
         if self.distance_on_edge >= edge_length:
             return True
@@ -130,32 +135,44 @@ class Vehicle:
             return True
         return False
 
-    def _interpolate_coordinates(self, geometry_coords, progress_fraction):
+    def _interpolate_coordinates(self, geometry_coords, progress_fraction, edge_dict=None):
         """Geometry is list of [lat, lon] points."""
         if not geometry_coords or len(geometry_coords) == 0:
             return
-        if len(geometry_coords) == 1 or progress_fraction <= 0.0:
-            self.lat, self.lon = geometry_coords[0][0], geometry_coords[0][1]
-            return
-        if progress_fraction >= 1.0:
-            self.lat, self.lon = geometry_coords[-1][0], geometry_coords[-1][1]
-            return
 
-        total_segments = len(geometry_coords) - 1
-        segment_float = progress_fraction * total_segments
+        total_segments = max(1, len(geometry_coords) - 1)
+        progress_clamped = max(0.0, min(1.0, progress_fraction))
+        segment_float = progress_clamped * total_segments
         idx = min(total_segments - 1, int(segment_float))
         frac = segment_float - idx
 
         p1 = geometry_coords[idx]
-        p2 = geometry_coords[idx + 1]
+        p2 = geometry_coords[min(len(geometry_coords) - 1, idx + 1)] if len(geometry_coords) > 1 else p1
 
-        self.lat = p1[0] + frac * (p2[0] - p1[0])
-        self.lon = p1[1] + frac * (p2[1] - p1[1])
+        base_lat = p1[0] + frac * (p2[0] - p1[0])
+        base_lon = p1[1] + frac * (p2[1] - p1[1])
         
         # Calculate heading angle
         dy = p2[0] - p1[0]
         dx = (p2[1] - p1[1]) * math.cos(math.radians(p1[0]))
-        self.heading = math.degrees(math.atan2(dy, dx))
+        if dy != 0.0 or dx != 0.0:
+            self.heading = math.degrees(math.atan2(dy, dx))
+
+        # Apply multi-lane lateral coordinate offset if road has >1 lanes
+        lanes = max(1, edge_dict.get("lanes", 1)) if edge_dict else 1
+        if lanes > 1:
+            heading_rad = math.radians(self.heading)
+            # Perpendicular shift in meters (1.8m shift per lane index from center)
+            lane_shift_m = (self.lane_index - (lanes - 1) / 2.0) * 1.8
+            
+            lat_offset_deg = (lane_shift_m * math.cos(heading_rad + math.pi/2)) / 111139.0
+            lon_offset_deg = (lane_shift_m * math.sin(heading_rad + math.pi/2)) / (111139.0 * math.cos(math.radians(base_lat)))
+            
+            self.lat = base_lat + lat_offset_deg
+            self.lon = base_lon + lon_offset_deg
+        else:
+            self.lat = base_lat
+            self.lon = base_lon
 
     def to_dict(self):
         res = {

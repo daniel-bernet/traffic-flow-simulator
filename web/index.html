@@ -218,6 +218,10 @@
                 <span>🚦 Traffic Light Signals (Live Phase)</span>
             </label>
             <label class="checkbox-item">
+                <input type="checkbox" id="chk-show-parking" checked onchange="toggleLayerVisibility()">
+                <span>🅿️ Parking Garages (Live Occupancy)</span>
+            </label>
+            <label class="checkbox-item">
                 <input type="checkbox" id="chk-show-congestion" checked onchange="toggleLayerVisibility()">
                 <span>🔥 Traffic Congestion Lines</span>
             </label>
@@ -277,6 +281,18 @@
 
         <div id="signals-manager-list" class="signals-manager-container">
             <p class="empty-msg">Loading signal controllers...</p>
+        </div>
+
+        <hr class="divider" />
+
+        <!-- Parking Garages Live Occupancy Section -->
+        <div class="sidebar-header flex-between">
+            <h2>🅿️ Lucerne Parking Garages</h2>
+            <span class="badge-val" id="val-parking-count">7 Garages</span>
+        </div>
+
+        <div id="parking-garages-list" class="parking-manager-container">
+            <p class="empty-msg">Loading parking occupancy data...</p>
         </div>
 
         <hr class="divider" />

@@ -7,6 +7,7 @@ from src.vehicle import TrafficClass, Vehicle
 from src.od_generator import ODGenerator
 from src.bus_transit import BusTransitManager
 from src.traffic_signals import TrafficSignalManager
+from src.parking import ParkingManager
 
 logger = logging.getLogger("SimulationEngine")
 
@@ -16,6 +17,7 @@ class TrafficSimulationEngine:
         self.od_generator = ODGenerator(data_loader)
         self.bus_transit_manager = BusTransitManager(data_loader, self.od_generator)
         self.signal_manager = TrafficSignalManager(data_loader)
+        self.parking_manager = ParkingManager(data_loader)
         
         self.edges_dict = {edge["edge_id"]: edge for edge in data_loader.edges_list}
         self.active_vehicles = {}  # vehicle_id -> Vehicle
@@ -61,6 +63,7 @@ class TrafficSimulationEngine:
         self.od_generator.reload_network_graph()
         self.bus_transit_manager.reload_network()
         self.signal_manager.reload_network()
+        self.parking_manager.reload_network()
         self.reset()
         logger.info(f"Engine hot-reloaded AOI: {len(self.edges_dict)} active edges.")
 
@@ -174,13 +177,15 @@ class TrafficSimulationEngine:
                     if arrived:
                         arrived_ids.append(veh.id)
 
-        # 3. Clean up Arrived Vehicles
+        # 3. Clean up Arrived Vehicles & Check Parking Garages Arrival
         for veh_id in arrived_ids:
             veh = self.active_vehicles.pop(veh_id, None)
             if veh:
                 self.completed_trips.append(veh.total_travel_time)
+                self.parking_manager.handle_vehicle_arrival(veh.id, veh.destination_id)
 
-        # 4. Spawn New Standard Vehicles & Timetable Transit Buses
+        # 4. Advance Parking Garages & Timetable Transit Buses
+        self.parking_manager.tick(effective_dt)
         self._spawn_vehicles(effective_dt)
         new_transit_buses = self.bus_transit_manager.tick(effective_dt, self.active_vehicles)
         for bus in new_transit_buses:
@@ -334,5 +339,6 @@ class TrafficSimulationEngine:
             "blocked_edges": list(self.blocked_edges),
             "top_chokepoints": sorted_chokepoints,
             "bus_lines": self.bus_transit_manager.get_transit_state(),
-            "signals": self.signal_manager.get_signals_state()
+            "signals": self.signal_manager.get_signals_state(),
+            "parking_garages": self.parking_manager.get_parking_state()
         }
