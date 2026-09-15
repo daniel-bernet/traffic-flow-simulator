@@ -44,8 +44,42 @@ Vehicles operate with distinct Passenger Car Equivalent (PCE) weights, speed cap
 
 ## 3. Dynamic Rerouting Engine
 
-When a road segment is manually closed by clicking it on the map:
-1. Edge speed drops to near zero ($0.5\,\text{m/s}$), and edge $V/C$ ratio spikes to $5.0$.
-2. All active vehicles heading towards or currently on that edge trigger dynamic **A* shortest path recalculation** via NetworkX:
-   $$\text{Weight}(u, v) = \begin{cases} 10^9 & \text{if edge } (u,v) \text{ is blocked} \\ T_e & \text{otherwise} \end{cases}$$
-3. Traffic dynamically diverts to parallel bypass arterial roads in real time.
+---
+
+## 4. Public Transit Schedule Lateness Engine (VBL Lucerne)
+
+Public buses operate on fixed timetable departure headways along 5 primary Verkehrsbetriebe Luzern (VBL) transit corridors:
+* **Line 1** (*Obernau – Kriens – Bahnhof – Maihof*): 6 min headway ($10\text{ buses/hr}$)
+* **Line 6** (*Matthof – Bahnhof – Biregghof*): 8 min headway
+* **Line 12** (*Littau Gare – Bahnhof – Würzenbach*): 7.5 min headway
+* **Line 14** (*Horw Zentrum – Bahnhof – Brüelstrasse*): 10 min headway
+* **Line 24** (*Bahnhof – Verkehrshaus – Meggen*): 15 min headway
+
+### Schedule Delay (Lateness) Formula
+
+For each active bus on Line $L$, the real-time schedule delay (lateness in seconds) is evaluated as:
+
+$$\Delta T_{\text{schedule}} = \max\left(0, T_{\text{actual}} - \frac{k}{N} T_{\text{nominal}}\right)$$
+
+Where:
+* $T_{\text{actual}}$: Actual elapsed travel time of the bus since origin dispatch.
+* $k / N$: Fractional distance completed along the line's route edge sequence.
+* $T_{\text{nominal}}$: Target nominal schedule duration for the full line length under free-flow conditions.
+
+Punctuality Status:
+* 🟢 **ON TIME**: Average line lateness $< 1.5\text{ minutes}$.
+* 🟡 **MINOR DELAY**: Average line lateness $1.5\text{--}4.0\text{ minutes}$.
+* 🔴 **HEAVY DELAY**: Average line lateness $> 4.0\text{ minutes}$.
+
+---
+
+## 5. Environmental $\text{CO}_2$ & Fuel Emissions Model
+
+The simulator evaluates total hourly $\text{CO}_2$ emissions ($\text{kg/hr}$) and fuel burn ($\text{L/hr}$) across all active vehicles:
+
+$$\text{CO}_2\text{ Rate} = \sum_{v \in \text{Vehicles}} E_{\text{base}}(v) \times \left(\frac{\text{Speed}_v}{3600}\right) \times \left[ 1 + 1.2 \left(\min\left(3, \frac{V_e}{C_e}\right)\right)^2 \right] \times 3600$$
+
+Where $E_{\text{base}}$ is the base emission rate per kilometer:
+* **Personal Car**: $0.14\text{ kg CO}_2/\text{km}$ ($0.06\text{ L fuel/km}$)
+* **Public Bus**: $0.65\text{ kg CO}_2/\text{km}$ ($0.26\text{ L fuel/km}$)
+* **Freight Truck / Coach**: $0.85\text{ kg CO}_2/\text{km}$ ($0.35\text{ L fuel/km}$)

@@ -455,32 +455,6 @@
       "capacity_veh_per_hr": 3200,
       "enabled": true,
       "is_custom": false
-    },
-    {
-      "id": "gw_custom_5352409973_1789456140267",
-      "node_id": "5352409973",
-      "name": "Custom Boundary Portal",
-      "corridor_type": "secondary",
-      "lat": 47.1053574,
-      "lon": 8.3476663,
-      "weight": 5.0,
-      "direction": "both",
-      "capacity_veh_per_hr": 2000,
-      "enabled": true,
-      "is_custom": true
-    },
-    {
-      "id": "gw_custom_372671854_1789456148097",
-      "node_id": "372671854",
-      "name": "Custom Boundary Portal",
-      "corridor_type": "secondary",
-      "lat": 47.1050467,
-      "lon": 8.34753,
-      "weight": 5.0,
-      "direction": "both",
-      "capacity_veh_per_hr": 2000,
-      "enabled": true,
-      "is_custom": true
     }
   ]
 }

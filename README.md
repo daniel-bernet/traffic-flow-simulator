@@ -36,6 +36,15 @@ An interactive, high-performance Python simulation software designed to model tr
   * 🚚 **Logistics / Freight** (2.0 PCE): Capped urban speeds, targeted towards commercial hubs & supermarkets.
   * 🚍 **Public Buses** (2.0 PCE): Dedicated transit corridors connecting main hubs.
 
+* **Public Transit Bus Line Timetables & Delay Tracking (VBL Lucerne)**:
+  * Models **5 core VBL public bus lines** (Line 1: 6 min headway, Line 6, Line 12, Line 14, Line 24).
+  * Calculates real-time **Schedule Delay / Lateness (minutes)** for each line based on traffic congestion.
+  * Dedicated **VBL Bus Transit Dashboard** in the sidebar with live delay status tags (🟢 *On Time*, 🟡 *Minor Delay*, 🔴 *Heavy Delay*).
+  * **Click to Highlight Route**: Click any bus line card to highlight its full physical route on the map canvas.
+
+* **Environmental $\text{CO}_2$ & Fuel Emissions Analytics**:
+  * Live status header tracking estimated $\text{CO}_2$ emission rates ($\text{kg/hr}$) and fuel consumption ($\text{L/hr}$) across all active vehicles, incorporating stop-and-go congestion penalties.
+
 * **BPR Delay Congestion Model & Bottleneck Detection**:
   * Dynamic travel time computed per road segment using the **Bureau of Public Roads (BPR) formula**:
     $$T_e = T_{e,0} \left[ 1 + 0.15 \left( \frac{V_e}{C_e} \right)^4 \right]$$

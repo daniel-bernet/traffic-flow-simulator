@@ -10,10 +10,13 @@ let gatewayLayerGroup;
 let boundaryLayerGroup;
 let previewGatewayLayerGroup;
 let aoiHandleLayerGroup;
+let busLineLayerGroup;
 
 let gatewaysData = [];
 let masterHighspeedEdges = []; // All >30 km/h edges from master graph for live gateway preview
 let aoiPolygonCoords = []; // Current active AOI polygon ring
+let latestBusLinesData = [];
+let activeHighlightedBusLine = null;
 
 let isAddingGatewayMode = false;
 let isDrawingAOIMode = false;
@@ -68,6 +71,7 @@ function initMap() {
     gatewayLayerGroup = L.layerGroup().addTo(map);
     previewGatewayLayerGroup = L.layerGroup().addTo(map);
     aoiHandleLayerGroup = L.layerGroup().addTo(map);
+    busLineLayerGroup = L.layerGroup().addTo(map);
 
     // Map Click Handler for Gateway placement or AOI Drawing
     map.on('click', async (e) => {
@@ -805,11 +809,77 @@ function filterLegend(colorName) {
     });
 }
 
+// VBL Bus Transit Dashboard & Route Highlighting
+function renderBusTransitDashboard(busLines) {
+    const container = document.getElementById('bus-lines-list');
+    if (!container) return;
+    if (!busLines || busLines.length === 0) {
+        container.innerHTML = `<p class="empty-msg">No active VBL transit lines.</p>`;
+        return;
+    }
+
+    container.innerHTML = busLines.map(line => `
+        <div class="bus-line-card ${activeHighlightedBusLine === line.id ? 'active-highlight' : ''}" style="border-left-color:${line.color};" onclick="highlightBusLineRoute('${line.id}')">
+            <div class="bus-line-header">
+                <span class="bus-line-title" title="${line.name}">${line.name}</span>
+                <span class="bus-delay-tag" style="background-color:${line.status_color};">${line.status_tag}</span>
+            </div>
+            <div class="bus-line-meta">
+                <span>Headway: ${line.headway_min}m</span>
+                <span>Active Buses: <strong>${line.active_buses}</strong></span>
+            </div>
+        </div>
+    `).join('');
+}
+
+function highlightBusLineRoute(lineId) {
+    if (activeHighlightedBusLine === lineId) {
+        activeHighlightedBusLine = null;
+        busLineLayerGroup.clearLayers();
+    } else {
+        activeHighlightedBusLine = lineId;
+        busLineLayerGroup.clearLayers();
+
+        const line = (latestBusLinesData || []).find(l => l.id === lineId);
+        if (line && line.route_edges) {
+            const bounds = [];
+            line.route_edges.forEach(eId => {
+                if (edgePolylines[eId]) {
+                    const poly = L.polyline(edgePolylines[eId].getLatLngs(), {
+                        color: line.color,
+                        weight: 6,
+                        opacity: 0.9,
+                        dashArray: '8, 8'
+                    });
+                    busLineLayerGroup.addLayer(poly);
+                    bounds.push(...edgePolylines[eId].getLatLngs());
+                }
+            });
+            if (bounds.length > 0) {
+                map.fitBounds(L.latLngBounds(bounds), { maxZoom: 15 });
+            }
+        }
+    }
+    renderBusTransitDashboard(latestBusLinesData);
+}
+
 // Render Simulation Frame
 function renderSimulationState(state) {
     document.getElementById('val-active-count').innerText = state.active_vehicles_count;
     document.getElementById('val-completed-count').innerText = state.completed_trips_count;
-    document.getElementById('val-avg-delay').innerText = state.avg_travel_time_sec.toFixed(1);
+    document.getElementById('val-avg-delay').innerText = `${state.avg_travel_time_sec.toFixed(1)}s`;
+
+    if (state.co2_kg_hr !== undefined) {
+        document.getElementById('val-co2-rate').innerText = `${state.co2_kg_hr.toFixed(0)} kg/h`;
+    }
+    if (state.fuel_l_hr !== undefined) {
+        document.getElementById('val-fuel-rate').innerText = `${state.fuel_l_hr.toFixed(0)} L/h`;
+    }
+
+    if (state.bus_lines) {
+        latestBusLinesData = state.bus_lines;
+        renderBusTransitDashboard(state.bus_lines);
+    }
 
     const mins = Math.floor(state.sim_time / 60);
     const secs = Math.floor(state.sim_time % 60);

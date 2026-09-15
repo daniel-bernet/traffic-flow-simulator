@@ -110,8 +110,14 @@ async def get_initial_data():
         "master_highspeed_edges": master_highspeed_edges,
         "pois": data_loader.pois,
         "gateways": data_loader.gateway_details,
-        "aoi_polygon": data_loader.aoi_polygon_coords
+        "aoi_polygon": data_loader.aoi_polygon_coords,
+        "bus_lines": engine.bus_transit_manager.get_transit_state()
     }
+
+@app.get("/api/bus-lines")
+async def get_bus_lines():
+    """Returns VBL Lucerne public bus lines, stop sequences, headways, and real-time lateness."""
+    return engine.bus_transit_manager.get_transit_state()
 
 # Area of Interest (AOI) Endpoints
 class AOIPayload(BaseModel):

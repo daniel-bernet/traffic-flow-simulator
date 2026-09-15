@@ -57,6 +57,11 @@ class Vehicle:
         self.heading = 0.0 # orientation degrees
         self.total_travel_time = 0.0
 
+        # Public Transit metadata
+        self.bus_line_id = None
+        self.scheduled_travel_time = 0.0
+        self.schedule_delay_sec = 0.0
+
     @property
     def current_edge_id(self):
         if 0 <= self.current_edge_idx < len(self.route_edges):
@@ -122,7 +127,7 @@ class Vehicle:
         self.heading = math.degrees(math.atan2(dy, dx))
 
     def to_dict(self):
-        return {
+        res = {
             "id": self.id,
             "class": self.vehicle_class.value,
             "color": self.props["color"],
@@ -132,3 +137,7 @@ class Vehicle:
             "status": self.status,
             "edge_id": self.current_edge_id
         }
+        if self.bus_line_id:
+            res["bus_line_id"] = self.bus_line_id
+            res["delay_sec"] = round(self.schedule_delay_sec, 1)
+        return res

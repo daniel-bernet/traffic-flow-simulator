@@ -51,8 +51,16 @@
                 <span class="stat-value" id="val-completed-count">0</span>
             </div>
             <div class="stat-badge">
-                <span class="stat-label">Avg Delay (sec)</span>
-                <span class="stat-value" id="val-avg-delay">0.0</span>
+                <span class="stat-label">Avg Delay</span>
+                <span class="stat-value" id="val-avg-delay">0.0s</span>
+            </div>
+            <div class="stat-badge">
+                <span class="stat-label">🌱 CO₂ Rate</span>
+                <span class="stat-value" id="val-co2-rate">0 kg/h</span>
+            </div>
+            <div class="stat-badge">
+                <span class="stat-label">⛽ Fuel Rate</span>
+                <span class="stat-value" id="val-fuel-rate">0 L/h</span>
             </div>
             <div class="stat-badge highlight">
                 <span class="stat-label">Sim Time</span>
@@ -221,6 +229,18 @@
                 <input type="checkbox" id="chk-veh-bus" checked onchange="toggleLayerVisibility()">
                 <span>🚍 Public Buses</span>
             </label>
+        </div>
+
+        <hr class="divider" />
+
+        <!-- VBL Public Transit Lines & Delay Dashboard -->
+        <div class="sidebar-header flex-between">
+            <h2>🚌 VBL Bus Lines & Delays</h2>
+            <span class="badge-val" id="val-transit-count">5 Lines</span>
+        </div>
+
+        <div id="bus-lines-list" class="bus-lines-container">
+            <p class="empty-msg">Calculating live transit timetable delays...</p>
         </div>
 
         <hr class="divider" />

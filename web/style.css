@@ -505,3 +505,69 @@ input[type="range"] {
     border-color: #ffffff;
     box-shadow: 0 0 12px #10b981;
 }
+
+/* VBL Bus Transit Dashboard */
+.bus-lines-container {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 220px;
+    overflow-y: auto;
+}
+
+.bus-line-card {
+    background: rgba(15, 23, 42, 0.6);
+    border-left: 4px solid #38bdf8;
+    border-top: 1px solid var(--panel-border);
+    border-right: 1px solid var(--panel-border);
+    border-bottom: 1px solid var(--panel-border);
+    padding: 8px 10px;
+    border-radius: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.bus-line-card:hover {
+    background: rgba(30, 41, 59, 0.9);
+    transform: translateX(3px);
+}
+
+.bus-line-card.active-highlight {
+    background: rgba(56, 189, 248, 0.15);
+    border-color: var(--accent-blue);
+    box-shadow: 0 0 12px rgba(56, 189, 248, 0.3);
+}
+
+.bus-line-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.bus-line-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-main);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 170px;
+}
+
+.bus-delay-tag {
+    font-size: 10px;
+    font-weight: 700;
+    padding: 2px 6px;
+    border-radius: 4px;
+    color: #ffffff;
+}
+
+.bus-line-meta {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    color: var(--text-muted);
+}

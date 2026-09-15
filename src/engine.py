@@ -5,6 +5,7 @@ import random
 from collections import defaultdict
 from src.vehicle import TrafficClass, Vehicle
 from src.od_generator import ODGenerator
+from src.bus_transit import BusTransitManager
 
 logger = logging.getLogger("SimulationEngine")
 
@@ -12,6 +13,7 @@ class TrafficSimulationEngine:
     def __init__(self, data_loader):
         self.data_loader = data_loader
         self.od_generator = ODGenerator(data_loader)
+        self.bus_transit_manager = BusTransitManager(data_loader, self.od_generator)
         
         self.edges_dict = {edge["edge_id"]: edge for edge in data_loader.edges_list}
         self.active_vehicles = {}  # vehicle_id -> Vehicle
@@ -54,6 +56,7 @@ class TrafficSimulationEngine:
         """Hot-reload network graph, edges, and gateways when AOI polygon changes."""
         self.edges_dict = {edge["edge_id"]: edge for edge in self.data_loader.edges_list}
         self.od_generator.reload_network_graph()
+        self.bus_transit_manager.reload_network()
         self.reset()
         logger.info(f"Engine hot-reloaded AOI: {len(self.edges_dict)} active edges.")
 
@@ -134,8 +137,11 @@ class TrafficSimulationEngine:
             if veh:
                 self.completed_trips.append(veh.total_travel_time)
 
-        # 4. Spawn New Vehicles
+        # 4. Spawn New Standard Vehicles & Timetable Transit Buses
         self._spawn_vehicles(effective_dt)
+        new_transit_buses = self.bus_transit_manager.tick(effective_dt, self.active_vehicles)
+        for bus in new_transit_buses:
+            self.active_vehicles[bus.id] = bus
 
         return self.get_simulation_state()
 
@@ -248,13 +254,40 @@ class TrafficSimulationEngine:
 
         avg_travel_time = (sum(self.completed_trips) / len(self.completed_trips)) if self.completed_trips else 0.0
 
+        # Environmental CO2 & Fuel Emissions Calculator
+        co2_rate_kg_hr = 0.0
+        fuel_rate_l_hr = 0.0
+
+        for veh in self.active_vehicles.values():
+            e_id = veh.current_edge_id
+            if not e_id or e_id not in self.edge_stats:
+                continue
+            curr_speed_kmh = self.edge_stats[e_id]["current_speed"] * 3.6
+            vc_ratio = self.edge_stats[e_id]["vc_ratio"]
+
+            if veh.vehicle_class == TrafficClass.PERSONAL:
+                base_co2, base_fuel = 0.14, 0.06
+            elif veh.vehicle_class == TrafficClass.BUS:
+                base_co2, base_fuel = 0.65, 0.26
+            else: # LOGISTICS / TOURISM
+                base_co2, base_fuel = 0.85, 0.35
+
+            penalty = 1.0 + 1.2 * math.pow(min(3.0, vc_ratio), 2)
+            dist_km = (curr_speed_kmh / 3600.0)
+
+            co2_rate_kg_hr += base_co2 * dist_km * penalty * 3600.0
+            fuel_rate_l_hr += base_fuel * dist_km * penalty * 3600.0
+
         return {
             "sim_time": round(self.sim_time, 1),
             "active_vehicles_count": len(self.active_vehicles),
             "completed_trips_count": len(self.completed_trips),
             "avg_travel_time_sec": round(avg_travel_time, 1),
+            "co2_kg_hr": round(co2_rate_kg_hr, 1),
+            "fuel_l_hr": round(fuel_rate_l_hr, 1),
             "vehicles": vehicle_points,
             "congested_edges": congested_edges,
             "blocked_edges": list(self.blocked_edges),
-            "top_chokepoints": sorted_chokepoints
+            "top_chokepoints": sorted_chokepoints,
+            "bus_lines": self.bus_transit_manager.get_transit_state()
         }
