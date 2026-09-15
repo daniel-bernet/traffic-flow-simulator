@@ -279,6 +279,21 @@ async def reset_simulation():
     engine.reset()
     return {"status": "ok"}
 
+@app.post("/api/pause")
+async def pause_simulation():
+    is_paused = engine.set_paused(True)
+    return {"status": "ok", "is_paused": is_paused}
+
+@app.post("/api/resume")
+async def resume_simulation():
+    is_paused = engine.set_paused(False)
+    return {"status": "ok", "is_paused": is_paused}
+
+@app.post("/api/toggle-pause")
+async def toggle_pause_simulation():
+    is_paused = engine.toggle_pause()
+    return {"status": "ok", "is_paused": is_paused}
+
 class PresetPayload(BaseModel):
     preset_name: str
 

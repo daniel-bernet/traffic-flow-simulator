@@ -112,7 +112,10 @@ class BusTransitManager:
                     full_route_edges.extend(seg_edges)
 
             # Target nominal travel time (in seconds) assuming 35 km/h avg free flow speed
-            total_dist_m = sum(self.data_loader.edges_list[0].get("length", 100.0) for _ in full_route_edges)
+            edges_dict = {e["edge_id"]: e for e in self.data_loader.edges_list}
+            total_dist_m = sum(edges_dict[e_id]["length"] for e_id in full_route_edges if e_id in edges_dict)
+            if total_dist_m <= 0.0:
+                total_dist_m = 3500.0 # Default ~3.5km route fallback
             nominal_travel_time_sec = max(180, total_dist_m / (35.0 / 3.6))
 
             self.bus_lines[line_id] = {

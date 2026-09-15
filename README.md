@@ -30,6 +30,21 @@ An interactive, high-performance Python simulation software designed to model tr
   2. **Outside → Simulation Area (Inflow)**: Commuters, tourists, and freight entering from regional gateways.
   3. **Simulation Area → Outside (Outflow)**: Outward traffic heading to highway portals.
 
+* **Microscopic Intelligent Driver Model (IDM) Physics**:
+  * Continuous acceleration ($a_{\max} = 2.0\text{ m/s}^2$) and comfortable deceleration ($b_{\text{comf}} = 2.5\text{ m/s}^2$) with safe time headway spacing ($T = 1.2\text{ s}$).
+  * Vehicles accelerate smoothly and brake realistically behind lead vehicles and at red light signals.
+
+* **Physical Bumper-to-Bumper Spatial Queue Spacing**:
+  * Prevents vehicle markers from overlapping at red lights and bottlenecks by enforcing $6.0\text{ m}$ visual queue offsets per vehicle.
+  * Form realistic queues of cars waiting at signals and chokepoints.
+
+* **Simulation Pause / Resume & 0.25x / 0.5x Slow-Motion Controls**:
+  * One-click header toggle button (`⏸️ Pause` / `▶️ Resume`) and `Spacebar` keyboard shortcut.
+  * Precise time controls with `0.25x`, `0.5x`, `1.0x`, `2.0x`, and `5.0x` simulation speed presets.
+
+* **Expanded High-Density Vehicle Scaling**:
+  * Maximum vehicle capacity expanded to **3,500+ active vehicles** with spawn rates up to **15.0 veh/s**, modeling dense rush hour traffic.
+
 * **Multi-Class Vehicle Dynamics**:
   * 🚗 **Personal Cars** (1.0 PCE): Standard commuter dynamics & dynamic shortest path routing.
   * 🚌 **Tourism Coaches** (1.5 PCE): Cautious speeds, high attraction to Kapellbrücke, Lion Monument, KKL, and Hotels.

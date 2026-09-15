@@ -124,7 +124,10 @@ function initMap() {
 // Keyboard Shortcuts Listener
 function initKeyboardShortcuts() {
     document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') {
+        if (e.code === 'Space' && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
+            e.preventDefault();
+            togglePauseSimulation();
+        } else if (e.key === 'Escape') {
             if (isDrawingAOIMode) cancelDrawAOI();
             if (isAddingGatewayMode) cancelAddGateway();
             if (isEditingAOIMode) toggleEditAOIMode();
@@ -959,6 +962,9 @@ function highlightBusLineRoute(lineId) {
 
 // Render Simulation Frame
 function renderSimulationState(state) {
+    if (state.is_paused !== undefined) {
+        updatePauseUI(state.is_paused);
+    }
     document.getElementById('val-active-count').innerText = state.active_vehicles_count;
     document.getElementById('val-completed-count').innerText = state.completed_trips_count;
     document.getElementById('val-avg-delay').innerText = `${state.avg_travel_time_sec.toFixed(1)}s`;
@@ -1090,9 +1096,43 @@ function updateParameters() {
     simParameters.sim_speed_multiplier = parseFloat(document.getElementById('slider-sim-speed').value);
 
     document.getElementById('lbl-spawn-rate').innerText = `${simParameters.spawn_rate.toFixed(1)} veh/s`;
-    document.getElementById('lbl-sim-speed').innerText = `${simParameters.sim_speed_multiplier.toFixed(0)}x`;
+    document.getElementById('lbl-sim-speed').innerText = `${simParameters.sim_speed_multiplier.toFixed(2)}x`;
 
     sendParametersToBackend();
+}
+
+let isPausedState = false;
+
+async function togglePauseSimulation() {
+    try {
+        const res = await fetch('/api/toggle-pause', { method: 'POST' });
+        const data = await res.json();
+        updatePauseUI(data.is_paused);
+    } catch (err) {
+        console.error("Failed to toggle pause simulation:", err);
+    }
+}
+
+function updatePauseUI(isPaused) {
+    isPausedState = isPaused;
+    const btn = document.getElementById('btn-pause-toggle');
+    if (btn) {
+        if (isPaused) {
+            btn.innerHTML = '▶️ Resume';
+            btn.classList.add('btn-accent');
+        } else {
+            btn.innerHTML = '⏸️ Pause';
+            btn.classList.remove('btn-accent');
+        }
+    }
+}
+
+function setSimSpeed(speedVal) {
+    const slider = document.getElementById('slider-sim-speed');
+    if (slider) {
+        slider.value = speedVal;
+        updateParameters();
+    }
 }
 
 function updateClassMix(changedClass) {

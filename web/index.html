@@ -66,6 +66,7 @@
                 <span class="stat-label">Sim Time</span>
                 <span class="stat-value" id="val-sim-time">00:00</span>
             </div>
+            <button class="btn btn-pause" id="btn-pause-toggle" onclick="togglePauseSimulation()">⏸️ Pause</button>
         </div>
     </header>
 
@@ -93,7 +94,7 @@
                 <span>Spawn Rate</span>
                 <span id="lbl-spawn-rate" class="badge-val">2.0 veh/s</span>
             </label>
-            <input type="range" id="slider-spawn-rate" min="0.5" max="10.0" step="0.5" value="2.0" oninput="updateParameters()">
+            <input type="range" id="slider-spawn-rate" min="0.5" max="15.0" step="0.5" value="2.0" oninput="updateParameters()">
         </div>
 
         <div class="control-group">
@@ -101,7 +102,14 @@
                 <span>Simulation Speed</span>
                 <span id="lbl-sim-speed" class="badge-val">1.0x</span>
             </label>
-            <input type="range" id="slider-sim-speed" min="1.0" max="10.0" step="1.0" value="1.0" oninput="updateParameters()">
+            <div class="speed-btn-group">
+                <button class="btn btn-preset" onclick="setSimSpeed(0.25)">0.25x</button>
+                <button class="btn btn-preset" onclick="setSimSpeed(0.5)">0.5x</button>
+                <button class="btn btn-preset" onclick="setSimSpeed(1.0)">1.0x</button>
+                <button class="btn btn-preset" onclick="setSimSpeed(2.0)">2.0x</button>
+                <button class="btn btn-preset" onclick="setSimSpeed(5.0)">5.0x</button>
+            </div>
+            <input type="range" id="slider-sim-speed" min="0.25" max="10.0" step="0.25" value="1.0" oninput="updateParameters()">
         </div>
 
         <hr class="divider" />

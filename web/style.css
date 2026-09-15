@@ -226,6 +226,33 @@ body, html {
     border-color: var(--accent-blue);
 }
 
+.btn-pause {
+    background: rgba(56, 189, 248, 0.2);
+    color: var(--accent-blue);
+    border: 1px solid var(--accent-blue);
+    padding: 6px 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.btn-pause:hover {
+    background: rgba(56, 189, 248, 0.4);
+}
+
+.speed-btn-group {
+    display: flex;
+    gap: 4px;
+    margin: 6px 0;
+}
+
+.speed-btn-group .btn {
+    flex: 1;
+    padding: 3px 0;
+    font-size: 11px;
+    text-align: center;
+}
+
 .btn-danger {
     background: rgba(239, 68, 68, 0.2);
     color: var(--accent-red);

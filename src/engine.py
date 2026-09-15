@@ -24,11 +24,12 @@ class TrafficSimulationEngine:
         self.blocked_edges = set()  # set of blocked edge_ids
         self.vehicle_id_counter = 0
         self.sim_time = 0.0  # simulation seconds
+        self.is_paused = False
         
         # User tweakable parameters
         self.params = {
             "spawn_rate": 2.0,           # Vehicles spawned per second
-            "sim_speed_multiplier": 1.0, # 1x to 10x fast forward
+            "sim_speed_multiplier": 1.0, # 0.25x to 10x
             "flow_internal_ratio": 0.50, # 50% internal-internal
             "flow_inflow_ratio": 0.25,   # 25% outside -> inside
             "flow_outflow_ratio": 0.25,  # 25% inside -> outside
@@ -36,7 +37,7 @@ class TrafficSimulationEngine:
             "class_tourism_pct": 20,
             "class_logistics_pct": 10,
             "class_bus_pct": 10,
-            "max_active_vehicles": 1500  # Cap for performance
+            "max_active_vehicles": 3500  # Expanded cap for high realism & density
         }
 
         # Dynamic Edge Status (vehicle count, PCE total, current speed, V/C ratio)
@@ -73,6 +74,14 @@ class TrafficSimulationEngine:
                 self.params[key] = float(val)
         logger.info(f"Updated simulation parameters: {self.params}")
 
+    def toggle_pause(self):
+        self.is_paused = not self.is_paused
+        return self.is_paused
+
+    def set_paused(self, paused: bool):
+        self.is_paused = bool(paused)
+        return self.is_paused
+
     def toggle_blocked_edge(self, edge_id: str):
         """User click action: block/unblock a road segment."""
         if edge_id in self.blocked_edges:
@@ -103,10 +112,14 @@ class TrafficSimulationEngine:
         self.sim_time = 0.0
         self.vehicle_id_counter = 0
         self.blocked_edges.clear()
+        self.is_paused = False
         self._init_edge_stats()
 
     def tick(self, dt=1.0):
         """Execute one simulation tick of dt seconds."""
+        if self.is_paused:
+            return self.get_simulation_state()
+
         effective_dt = dt * self.params["sim_speed_multiplier"]
         self.sim_time += effective_dt
 
@@ -116,30 +129,50 @@ class TrafficSimulationEngine:
         # 1. Update Edge Congestion & Speeds using BPR Formula
         self._update_edge_congestion()
 
-        # 2. Advance Active Vehicles
+        # 2. Advance Active Vehicles using IDM Microscopic Car-Following
         arrived_ids = []
-        for veh_id, vehicle in list(self.active_vehicles.items()):
-            curr_edge_id = vehicle.current_edge_id
+        
+        # Group vehicles by edge to compute gaps & queue spacing offsets
+        edge_vehicles = defaultdict(list)
+        for v_id, veh in self.active_vehicles.items():
+            curr_edge_id = veh.current_edge_id
             if not curr_edge_id or curr_edge_id in self.blocked_edges:
-                # Vehicle on blocked edge or lost path -> try advance or remove
-                if not vehicle.advance_to_next_edge():
+                if not veh.advance_to_next_edge():
                     continue
                 else:
-                    arrived_ids.append(veh_id)
+                    arrived_ids.append(v_id)
                     continue
+            edge_vehicles[curr_edge_id].append(veh)
 
-            edge_dict = self.edges_dict.get(curr_edge_id)
-            curr_speed = self.edge_stats[curr_edge_id]["current_speed"]
-            
-            # Decelerate / Hold at Red Traffic Light
-            if edge_dict and self.signal_manager.is_edge_red(curr_edge_id) and vehicle.distance_on_edge >= max(0.0, edge_dict["length"] - 15.0):
-                curr_speed = 0.5  # Held at red signal
-            
-            edge_finished = vehicle.update_position(edge_dict, dt=effective_dt, current_edge_speed=curr_speed)
-            if edge_finished:
-                arrived = vehicle.advance_to_next_edge()
-                if arrived:
-                    arrived_ids.append(veh_id)
+        # Update each edge group with IDM lead vehicle gap & queue offset
+        for e_id, v_list in edge_vehicles.items():
+            v_list.sort(key=lambda x: x.distance_on_edge, reverse=True)
+            edge_dict = self.edges_dict.get(e_id)
+            if not edge_dict:
+                continue
+
+            is_red = self.signal_manager.is_edge_red(e_id)
+
+            for idx, veh in enumerate(v_list):
+                if idx == 0:
+                    lead_dist = None
+                else:
+                    lead_veh = v_list[idx - 1]
+                    lead_dist = max(0.1, lead_veh.distance_on_edge - veh.distance_on_edge - lead_veh.props["length_meters"])
+
+                queue_offset = idx * 6.0  # 6m physical spacing per vehicle queued behind
+
+                edge_finished = veh.update_position(
+                    edge_dict=edge_dict,
+                    dt=effective_dt,
+                    lead_vehicle_dist_m=lead_dist,
+                    is_red_light=is_red,
+                    queue_offset_m=queue_offset
+                )
+                if edge_finished:
+                    arrived = veh.advance_to_next_edge()
+                    if arrived:
+                        arrived_ids.append(veh.id)
 
         # 3. Clean up Arrived Vehicles
         for veh_id in arrived_ids:
@@ -290,6 +323,7 @@ class TrafficSimulationEngine:
 
         return {
             "sim_time": round(self.sim_time, 1),
+            "is_paused": self.is_paused,
             "active_vehicles_count": len(self.active_vehicles),
             "completed_trips_count": len(self.completed_trips),
             "avg_travel_time_sec": round(avg_travel_time, 1),
