@@ -15,7 +15,22 @@ MAJOR_LUCERNE_SIGNALS = [
     {"name": "Seetalplatz Major Portal", "lat": 47.0710, "lon": 8.2890},
     {"name": "Luzernerstrasse / Kriens Entrance", "lat": 47.0380, "lon": 8.2950},
     {"name": "Baselstrasse / Bernstrasse Fork", "lat": 47.0510, "lon": 8.2920},
-    {"name": "Ostring / Spitalstrasse", "lat": 47.0580, "lon": 8.3005}
+    {"name": "Ostring / Spitalstrasse", "lat": 47.0580, "lon": 8.3005},
+    {"name": "Bundesplatz / Pilatusstrasse", "lat": 47.0460, "lon": 8.3070},
+    {"name": "Hirschengraben / Löwenplatz", "lat": 47.0555, "lon": 8.3095},
+    {"name": "Reusszopf / Spreuerbrücke", "lat": 47.0535, "lon": 8.3040},
+    {"name": "Reussport / Baselstrasse North", "lat": 47.0560, "lon": 8.2960},
+    {"name": "Tribschen / Allmendstrasse", "lat": 47.0430, "lon": 8.3120},
+    {"name": "Allmend / Messestrasse", "lat": 47.0360, "lon": 8.3080},
+    {"name": "Kriens Luzernerstrasse / Ringstrasse", "lat": 47.0348, "lon": 8.2810},
+    {"name": "Ebikon Zentralstrasse Signal", "lat": 47.0780, "lon": 8.3400},
+    {"name": "Seetalplatz West / Emmen", "lat": 47.0720, "lon": 8.2860},
+    {"name": "Sedel / Reussport Viaduct", "lat": 47.0610, "lon": 8.2930},
+    {"name": "Horw Bahnhofstrasse Signal", "lat": 47.0180, "lon": 8.3110},
+    {"name": "Zinggentorstrasse / Obergrund", "lat": 47.0448, "lon": 8.3050},
+    {"name": "Friedenstrasse / Alpenquai", "lat": 47.0485, "lon": 8.3140},
+    {"name": "Kantonalbank / Zentralstrasse", "lat": 47.0495, "lon": 8.3050},
+    {"name": "Brünigstrasse / Rothenburg", "lat": 47.0900, "lon": 8.2700},
 ]
 
 class TrafficSignal:
@@ -27,7 +42,13 @@ class TrafficSignal:
         self.lon = lon
         self.incoming_edges = incoming_edges
         
-        self.cycle_time_sec = 60.0  # Total cycle duration (seconds)
+        # Differentiate cycle times: major intersections get longer cycles
+        if len(incoming_edges) >= 4:
+            self.cycle_time_sec = 90.0   # Major intersection
+        elif len(incoming_edges) >= 3:
+            self.cycle_time_sec = 75.0   # Medium intersection  
+        else:
+            self.cycle_time_sec = 60.0   # Minor intersection
         self.green_split = 0.50     # 50% Phase A, 50% Phase B
         self.yellow_time_sec = 3.0
         

@@ -63,8 +63,12 @@
                 <span class="stat-value" id="val-fuel-rate">0 L/h</span>
             </div>
             <div class="stat-badge highlight">
-                <span class="stat-label">Sim Time</span>
-                <span class="stat-value" id="val-sim-time">00:00</span>
+                <span class="stat-label">⏰ Time</span>
+                <span class="stat-value" id="val-sim-time">06:00</span>
+            </div>
+            <div class="stat-badge">
+                <span class="stat-label">📈 Demand</span>
+                <span class="stat-value" id="val-demand-mult">0.45x</span>
             </div>
             <button class="btn btn-pause" id="btn-pause-toggle" onclick="togglePauseSimulation()">⏸️ Pause</button>
         </div>
@@ -110,6 +114,17 @@
                 <button class="btn btn-preset" onclick="setSimSpeed(5.0)">5.0x</button>
             </div>
             <input type="range" id="slider-sim-speed" min="0.25" max="10.0" step="0.25" value="1.0" oninput="updateParameters()">
+        </div>
+
+        <div class="control-group">
+            <label class="group-title">⏰ Jump to Time of Day</label>
+            <div class="speed-btn-group">
+                <button class="btn btn-preset" onclick="setSimTimeOfDay(6.0)">🌅 06:00</button>
+                <button class="btn btn-preset" onclick="setSimTimeOfDay(8.0)">🏢 08:00</button>
+                <button class="btn btn-preset" onclick="setSimTimeOfDay(12.0)">☀️ 12:00</button>
+                <button class="btn btn-preset" onclick="setSimTimeOfDay(17.5)">🌆 17:30</button>
+                <button class="btn btn-preset" onclick="setSimTimeOfDay(22.0)">🌙 22:00</button>
+            </div>
         </div>
 
         <hr class="divider" />

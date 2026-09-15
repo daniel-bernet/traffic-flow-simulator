@@ -304,6 +304,14 @@ async def toggle_pause_simulation():
     is_paused = engine.toggle_pause()
     return {"status": "ok", "is_paused": is_paused}
 
+class SetTimePayload(BaseModel):
+    hour: float
+
+@app.post("/api/set-time")
+async def set_time_of_day(payload: SetTimePayload):
+    current_hour = engine.set_time_of_day(payload.hour)
+    return {"status": "ok", "hour": current_hour}
+
 class PresetPayload(BaseModel):
     preset_name: str
 

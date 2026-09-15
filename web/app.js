@@ -1074,9 +1074,29 @@ function renderSimulationState(state) {
         renderParkingManagerList();
     }
 
-    const mins = Math.floor(state.sim_time / 60);
-    const secs = Math.floor(state.sim_time % 60);
-    document.getElementById('val-sim-time').innerText = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+    // Display 24-hour time-of-day clock
+    if (state.time_of_day_hour !== undefined) {
+        const h = Math.floor(state.time_of_day_hour);
+        const m = Math.floor((state.time_of_day_hour % 1) * 60);
+        document.getElementById('val-sim-time').innerText = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+    } else {
+        const mins = Math.floor(state.sim_time / 60);
+        const secs = Math.floor(state.sim_time % 60);
+        document.getElementById('val-sim-time').innerText = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+    }
+
+    // Display diurnal demand multiplier
+    if (state.diurnal_multiplier !== undefined) {
+        const demandEl = document.getElementById('val-demand-mult');
+        if (demandEl) {
+            demandEl.innerText = `${state.diurnal_multiplier.toFixed(1)}x`;
+            // Color code: green < 1.0, yellow 1.0-1.5, orange 1.5-2.0, red > 2.0
+            if (state.diurnal_multiplier >= 2.0) demandEl.style.color = '#ef4444';
+            else if (state.diurnal_multiplier >= 1.5) demandEl.style.color = '#f59e0b';
+            else if (state.diurnal_multiplier >= 1.0) demandEl.style.color = '#10b981';
+            else demandEl.style.color = '#94a3b8';
+        }
+    }
 
     const showPersonal = document.getElementById('chk-veh-personal').checked;
     const showTourism = document.getElementById('chk-veh-tourism').checked;
@@ -1219,6 +1239,20 @@ function setSimSpeed(speedVal) {
     if (slider) {
         slider.value = speedVal;
         updateParameters();
+    }
+}
+
+async function setSimTimeOfDay(hour) {
+    try {
+        const res = await fetch('/api/set-time', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ hour: hour })
+        });
+        const data = await res.json();
+        console.log(`Simulation jumped to hour: ${data.hour}`);
+    } catch (err) {
+        console.error("Failed to set time of day:", err);
     }
 }
 

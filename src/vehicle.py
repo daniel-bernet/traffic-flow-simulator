@@ -1,6 +1,7 @@
 import random
 from enum import Enum
 import math
+import random
 
 class TrafficClass(str, Enum):
     PERSONAL = "personal"
@@ -133,6 +134,9 @@ class Vehicle:
 
         # Velocity & position integration
         self.speed_ms = max(0.0, min(v_limit_ms, self.speed_ms + self.accel_ms2 * dt))
+        # Prevent permanent stall: creep at 0.5 m/s if gap is large and speed is 0
+        if self.speed_ms < 0.1 and effective_gap > 10.0 and not is_red_light:
+            self.speed_ms = 0.5
         move_dist = self.speed_ms * dt
         self.distance_on_edge += move_dist
 

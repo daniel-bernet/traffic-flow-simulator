@@ -125,9 +125,9 @@
       "corridor_type": "primary",
       "lat": 47.10489776697993,
       "lon": 8.31848914802126,
-      "weight": 6.0,
+      "weight": 6.6,
       "direction": "both",
-      "capacity_veh_per_hr": 2400,
+      "capacity_veh_per_hr": 2640,
       "enabled": true,
       "is_custom": false
     },

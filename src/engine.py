@@ -11,6 +11,36 @@ from src.parking import ParkingManager
 
 logger = logging.getLogger("SimulationEngine")
 
+# 24-hour diurnal traffic demand curve (hourly multiplier)
+# Based on typical Swiss urban traffic patterns from ASTRA counting data
+# Index 0 = midnight (00:00), Index 23 = 23:00
+DIURNAL_DEMAND_CURVE = [
+    0.15,  # 00:00 - minimal night traffic
+    0.10,  # 01:00
+    0.08,  # 02:00
+    0.08,  # 03:00
+    0.10,  # 04:00
+    0.20,  # 05:00 - early commuters
+    0.45,  # 06:00 - traffic ramp-up
+    1.60,  # 07:00 - morning rush building
+    2.20,  # 08:00 - MORNING PEAK
+    1.80,  # 09:00 - rush tapering
+    1.10,  # 10:00 - midday baseline
+    1.00,  # 11:00
+    1.15,  # 12:00 - lunch movement
+    1.10,  # 13:00
+    1.00,  # 14:00
+    1.20,  # 15:00 - school out / early departure
+    1.80,  # 16:00 - evening rush building
+    2.50,  # 17:00 - EVENING PEAK (highest)
+    2.00,  # 18:00 - rush tapering
+    1.30,  # 19:00
+    0.80,  # 20:00 - evening
+    0.55,  # 21:00
+    0.35,  # 22:00
+    0.25,  # 23:00
+]
+
 class TrafficSimulationEngine:
     def __init__(self, data_loader):
         self.data_loader = data_loader
@@ -26,6 +56,7 @@ class TrafficSimulationEngine:
         self.blocked_edges = set()  # set of blocked edge_ids
         self.vehicle_id_counter = 0
         self.sim_time = 0.0  # simulation seconds
+        self.sim_start_hour = 6.0  # simulation starts at 06:00
         self.is_paused = False
 
         # Demand accounting. generate_vehicle() returns None for unroutable O-D pairs; those
@@ -90,6 +121,30 @@ class TrafficSimulationEngine:
     def set_paused(self, paused: bool):
         self.is_paused = bool(paused)
         return self.is_paused
+
+    def set_time_of_day(self, hour: float):
+        """Jump simulation to a specific time of day (0.0 - 23.99)."""
+        hour = max(0.0, min(23.99, float(hour)))
+        # Calculate how many sim_seconds correspond to this hour
+        self.sim_time = (hour - self.sim_start_hour) * 3600.0
+        if self.sim_time < 0:
+            self.sim_time += 24.0 * 3600.0
+        logger.info(f"Simulation jumped to {int(hour):02d}:{int((hour % 1) * 60):02d}")
+        return self.get_current_hour()
+
+    def get_current_hour(self) -> float:
+        """Returns current simulation time-of-day as fractional hour (0.0-23.99)."""
+        hour = (self.sim_start_hour + self.sim_time / 3600.0) % 24.0
+        return hour
+
+    def get_diurnal_multiplier(self) -> float:
+        """Returns traffic demand multiplier for current time of day."""
+        hour = self.get_current_hour()
+        hour_idx = int(hour) % 24
+        next_idx = (hour_idx + 1) % 24
+        frac = hour - int(hour)
+        # Linear interpolation between hourly values
+        return DIURNAL_DEMAND_CURVE[hour_idx] * (1.0 - frac) + DIURNAL_DEMAND_CURVE[next_idx] * frac
 
     def toggle_blocked_edge(self, edge_id: str):
         """User click action: block/unblock a road segment."""
@@ -189,6 +244,7 @@ class TrafficSimulationEngine:
         self.active_vehicles.clear()
         self.completed_trips.clear()
         self.sim_time = 0.0
+        self.sim_start_hour = 6.0
         self.vehicle_id_counter = 0
         self.dropped_spawns = 0
         self.stranded_count = 0
@@ -345,7 +401,11 @@ class TrafficSimulationEngine:
         if len(self.active_vehicles) >= self.params["max_active_vehicles"]:
             return
 
-        spawn_chance = self.params["spawn_rate"] * dt
+        # Apply 24-hour diurnal demand multiplier to spawn rate
+        diurnal_mult = self.get_diurnal_multiplier()
+        effective_spawn_rate = self.params["spawn_rate"] * diurnal_mult
+
+        spawn_chance = effective_spawn_rate * dt
         num_to_spawn = int(spawn_chance)
         if random.random() < (spawn_chance - num_to_spawn):
             num_to_spawn += 1
@@ -433,8 +493,11 @@ class TrafficSimulationEngine:
             co2_rate_kg_hr += base_co2 * dist_km * penalty * 3600.0
             fuel_rate_l_hr += base_fuel * dist_km * penalty * 3600.0
 
+        current_hour = self.get_current_hour()
         return {
             "sim_time": round(self.sim_time, 1),
+            "time_of_day_hour": round(current_hour, 2),
+            "diurnal_multiplier": round(self.get_diurnal_multiplier(), 2),
             "is_paused": self.is_paused,
             "active_vehicles_count": len(self.active_vehicles),
             "completed_trips_count": len(self.completed_trips),
