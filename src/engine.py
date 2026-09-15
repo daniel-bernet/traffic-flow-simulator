@@ -50,6 +50,13 @@ class TrafficSimulationEngine:
                 "color": "#2ecc71" # Green
             }
 
+    def reload_aoi(self):
+        """Hot-reload network graph, edges, and gateways when AOI polygon changes."""
+        self.edges_dict = {edge["edge_id"]: edge for edge in self.data_loader.edges_list}
+        self.od_generator.reload_network_graph()
+        self.reset()
+        logger.info(f"Engine hot-reloaded AOI: {len(self.edges_dict)} active edges.")
+
     def reload_gateways(self, gateway_details):
         self.od_generator.reload_gateways(gateway_details)
 

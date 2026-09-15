@@ -8,7 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field
 
-from src.data_loader import LucerneDataLoader, GATEWAYS_FILE
+from src.data_loader import LucerneDataLoader, DEFAULT_AOI_COORDS
 from src.engine import TrafficSimulationEngine
 
 logging.basicConfig(level=logging.INFO)
@@ -21,7 +21,7 @@ data_loader = LucerneDataLoader()
 data_loader.load_data(use_cache=True)
 engine = TrafficSimulationEngine(data_loader)
 
-# Mount web frontend static directory
+# Mount web static directory
 WEB_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "web")
 os.makedirs(WEB_DIR, exist_ok=True)
 app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")
@@ -77,7 +77,7 @@ async def get_index():
 
 @app.get("/api/initial-data")
 async def get_initial_data():
-    """Returns static road network geometry, POIs, gateways, and boundary polygon for UI map rendering."""
+    """Returns static road network geometry, POIs, gateways, and AOI polygon for UI map rendering."""
     network_edges = [
         {
             "id": e["edge_id"],
@@ -94,10 +94,49 @@ async def get_initial_data():
         "edges": network_edges,
         "pois": data_loader.pois,
         "gateways": data_loader.gateway_details,
-        "boundary_polygon": data_loader.boundary_polygon_coords
+        "aoi_polygon": data_loader.aoi_polygon_coords
     }
 
-# Gateway Manager Pydantic Schemas
+# Area of Interest (AOI) Endpoints
+class AOIPayload(BaseModel):
+    polygon: List[List[float]]  # List of [lat, lon] coordinates
+
+@app.get("/api/aoi")
+async def get_aoi():
+    return {
+        "polygon": data_loader.aoi_polygon_coords,
+        "active_edges_count": len(data_loader.edges_list),
+        "gateways_count": len(data_loader.gateway_details)
+    }
+
+@app.post("/api/aoi")
+async def update_aoi(payload: AOIPayload):
+    if len(payload.polygon) < 3:
+        raise HTTPException(status_code=400, detail="Polygon must have at least 3 vertex coordinates.")
+
+    data_loader.apply_aoi_clipping_and_gateways(payload.polygon)
+    engine.reload_aoi()
+    
+    return {
+        "status": "ok",
+        "polygon": data_loader.aoi_polygon_coords,
+        "active_edges_count": len(data_loader.edges_list),
+        "gateways_count": len(data_loader.gateway_details),
+        "gateways": data_loader.gateway_details
+    }
+
+@app.delete("/api/aoi")
+async def reset_aoi():
+    data_loader.apply_aoi_clipping_and_gateways(DEFAULT_AOI_COORDS)
+    engine.reload_aoi()
+    return {
+        "status": "reset",
+        "polygon": data_loader.aoi_polygon_coords,
+        "active_edges_count": len(data_loader.edges_list),
+        "gateways_count": len(data_loader.gateway_details)
+    }
+
+# Gateway Manager Schemas
 class GatewayCreatePayload(BaseModel):
     name: str
     lat: float
@@ -136,7 +175,6 @@ async def create_custom_gateway(payload: GatewayCreatePayload):
         "is_custom": True
     }
 
-    # Add or update gateway
     data_loader.gateway_details.append(new_gw)
     data_loader.save_gateways_to_json()
     engine.reload_gateways(data_loader.gateway_details)

@@ -54,6 +54,12 @@ class ODGenerator:
         )
         return vehicle
 
+    def reload_network_graph(self):
+        """Rebuild NetworkX graph and gateway routing when AOI polygon changes."""
+        self.nx_graph = self._build_networkx_graph()
+        self.shortest_paths_cache.clear()
+        logger.info(f"Rebuilt NetworkX graph with {len(self.nx_graph.nodes)} nodes, {len(self.nx_graph.edges)} active AOI edges.")
+
     def reload_gateways(self, gateway_details):
         """Hot-reload gateway nodes and weights from gateway details list."""
         self.data_loader.gateway_details = gateway_details

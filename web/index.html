@@ -23,13 +23,20 @@
         <button class="btn btn-sm" onclick="cancelAddGateway()">Cancel</button>
     </div>
 
+    <!-- Map Canvas Draw AOI Banner -->
+    <div id="draw-aoi-banner" class="banner-glass hidden">
+        <span>✏️ Click points on map to draw your Area of Interest (AOI) Polygon boundary ring</span>
+        <button class="btn btn-sm btn-accent" onclick="finishDrawAOI()">Finish AOI</button>
+        <button class="btn btn-sm" onclick="cancelDrawAOI()">Cancel</button>
+    </div>
+
     <!-- Glassmorphic Header / Control Bar -->
     <header class="top-bar glass-panel">
         <div class="brand">
             <span class="flag">🇨🇭</span>
             <div>
                 <h1>Lucerne Traffic Flow Simulator</h1>
-                <p>Regional Portal Management & Bottleneck Analysis Engine</p>
+                <p>Interactive Area of Interest (AOI) & Gateway Analysis Engine</p>
             </div>
         </div>
 
@@ -139,9 +146,36 @@
         </div>
     </aside>
 
-    <!-- Right Sidebar: Display Checkboxes, Gateway Manager, & Legend -->
+    <!-- Right Sidebar: AOI Tool, Display Filters, Gateways, & Legend -->
     <aside class="sidebar right-sidebar glass-panel">
         
+        <!-- Area of Interest (AOI) Polygon Section -->
+        <div class="sidebar-header flex-between">
+            <h2>Area of Interest (AOI)</h2>
+            <button class="btn btn-sm btn-accent" onclick="startDrawAOI()">✍️ Draw AOI</button>
+        </div>
+
+        <div class="aoi-info-card">
+            <p class="aoi-status">Traffic & Gateways calculated strictly inside drawn AOI ring (> 30 km/h rule).</p>
+            <div class="aoi-btn-group">
+                <button class="btn btn-sm btn-preset" onclick="resetAOIPolygon()">🔄 Reset AOI</button>
+            </div>
+        </div>
+
+        <hr class="divider" />
+
+        <!-- Map Tile Basemap Switcher -->
+        <div class="control-group">
+            <label class="group-title">Basemap Tile Theme</label>
+            <select id="select-tile-theme" class="select-glass" onchange="changeTileTheme()">
+                <option value="esri_dark">Esri World Dark Gray (Watermark-Free)</option>
+                <option value="osm_standard">OpenStreetMap Standard</option>
+                <option value="carto_voyager">CartoDB Voyager (Clean)</option>
+            </select>
+        </div>
+
+        <hr class="divider" />
+
         <!-- Display / Filter Checkboxes Section -->
         <div class="sidebar-header">
             <h2>Map Display Filters</h2>
@@ -150,12 +184,16 @@
         <div class="checkbox-group">
             <label class="group-title">Map Layers</label>
             <label class="checkbox-item">
+                <input type="checkbox" id="chk-show-aoi" checked onchange="toggleLayerVisibility()">
+                <span>🔷 AOI Polygon Boundary Ring</span>
+            </label>
+            <label class="checkbox-item">
                 <input type="checkbox" id="chk-show-pois" checked onchange="toggleLayerVisibility()">
                 <span>📍 Points of Interest (POIs)</span>
             </label>
             <label class="checkbox-item">
                 <input type="checkbox" id="chk-show-gateways" checked onchange="toggleLayerVisibility()">
-                <span>🚪 Regional Gateway Portals</span>
+                <span>🚪 Border Gateways (&gt; 30 km/h)</span>
             </label>
             <label class="checkbox-item">
                 <input type="checkbox" id="chk-show-congestion" checked onchange="toggleLayerVisibility()">
@@ -187,12 +225,12 @@
 
         <!-- Gateway Manager Section -->
         <div class="sidebar-header flex-between">
-            <h2>Gateway Manager</h2>
-            <button class="btn btn-sm btn-accent" onclick="enableAddGatewayTool()">+ Add Gateway</button>
+            <h2>AOI Gateway Portals</h2>
+            <button class="btn btn-sm btn-accent" onclick="enableAddGatewayTool()">+ Add Custom</button>
         </div>
 
         <div id="gateway-manager-list" class="gateway-manager-container">
-            <p class="empty-msg">Loading active arterial portals...</p>
+            <p class="empty-msg">Loading AOI gateways...</p>
         </div>
 
         <hr class="divider" />
@@ -235,7 +273,7 @@
         </div>
 
         <div class="hint-box">
-            <p>💡 <strong>Tip:</strong> Click <strong>+ Add Gateway</strong> to drop a custom portal anywhere on the map! Uncheck vehicle classes to isolate specific traffic flows.</p>
+            <p>💡 <strong>Tip:</strong> Click <strong>✍️ Draw AOI</strong> to draw your custom boundary polygon! Only roads inside AOI are simulated, and gateways are created where roads &gt; 30 km/h cross the AOI border.</p>
         </div>
     </aside>
 

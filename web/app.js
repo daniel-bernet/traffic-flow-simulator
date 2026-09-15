@@ -1,6 +1,7 @@
 // Lucerne Traffic Flow Simulator Frontend App
 
 let map;
+let baseTileLayer;
 let edgePolylines = {};  // edge_id -> L.polyline
 let vehicleMarkers = {}; // vehicle_id -> L.circleMarker
 let gatewayMarkers = {}; // gateway_id -> L.marker
@@ -10,6 +11,13 @@ let boundaryLayerGroup;
 
 let gatewaysData = [];
 let isAddingGatewayMode = false;
+
+// AOI Drawing State
+let isDrawingAOIMode = false;
+let drawnAOIVertices = []; // [[lat, lon], ...]
+let tempAOIPolyline = null;
+let tempAOIMarkers = [];
+
 let socket;
 let simParameters = {
     spawn_rate: 2.0,
@@ -33,7 +41,7 @@ document.addEventListener("DOMContentLoaded", () => {
     initWebSocket();
 });
 
-// Initialize Leaflet Map Canvas with Esri Dark Gray Canvas (Watermark Free)
+// Initialize Leaflet Map Canvas
 function initMap() {
     map = L.map('map', {
         center: [47.0502, 8.3103],
@@ -43,8 +51,8 @@ function initMap() {
 
     L.control.zoom({ position: 'bottomright' }).addTo(map);
 
-    // Esri World Dark Gray Base Tile Server (100% Free & Watermark-Free)
-    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
+    // Default Tile Server: Esri Dark Gray (Watermark Free)
+    baseTileLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
         attribution: 'Tiles &copy; Esri &mdash; Esri, DeLorme, NAVTEQ',
         maxZoom: 19
     }).addTo(map);
@@ -53,52 +61,155 @@ function initMap() {
     poiLayerGroup = L.layerGroup().addTo(map);
     gatewayLayerGroup = L.layerGroup().addTo(map);
 
-    // Map Click Listener for "+ Add Gateway" Tool
+    // Map Click Handler for Gateway or AOI Drawing
     map.on('click', async (e) => {
-        if (!isAddingGatewayMode) return;
+        if (isDrawingAOIMode) {
+            // Add vertex to AOI polygon
+            const lat = e.latlng.lat;
+            const lon = e.latlng.lng;
+            drawnAOIVertices.push([lat, lon]);
 
-        const lat = e.latlng.lat;
-        const lon = e.latlng.lng;
-        const name = prompt("Enter Custom Gateway Portal Name:", "Custom Boundary Portal");
-        if (!name) {
-            cancelAddGateway();
+            // Add marker dot for vertex
+            const marker = L.circleMarker([lat, lon], {
+                radius: 5,
+                fillColor: '#38bdf8',
+                color: '#ffffff',
+                weight: 2
+            }).addTo(map);
+            tempAOIMarkers.push(marker);
+
+            // Draw line connecting vertices
+            if (tempAOIPolyline) map.removeLayer(tempAOIPolyline);
+            tempAOIPolyline = L.polyline(drawnAOIVertices, {
+                color: '#38bdf8',
+                weight: 3,
+                dashArray: '4, 4'
+            }).addTo(map);
             return;
         }
 
-        try {
-            const res = await fetch('/api/gateways', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    name: name,
-                    lat: lat,
-                    lon: lon,
-                    weight: 5.0,
-                    corridor_type: "secondary"
-                })
-            });
-            const newGw = await res.json();
-            gatewaysData.push(newGw);
-            renderGatewayMarkers();
-            renderGatewayManagerList();
-        } catch (err) {
-            console.error("Failed to add custom gateway:", err);
-        }
+        if (isAddingGatewayMode) {
+            const lat = e.latlng.lat;
+            const lon = e.latlng.lng;
+            const name = prompt("Enter Custom Gateway Portal Name:", "Custom Boundary Portal");
+            if (!name) {
+                cancelAddGateway();
+                return;
+            }
 
-        cancelAddGateway();
+            try {
+                const res = await fetch('/api/gateways', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        name: name,
+                        lat: lat,
+                        lon: lon,
+                        weight: 5.0,
+                        corridor_type: "secondary"
+                    })
+                });
+                const newGw = await res.json();
+                gatewaysData.push(newGw);
+                renderGatewayMarkers();
+                renderGatewayManagerList();
+            } catch (err) {
+                console.error("Failed to add custom gateway:", err);
+            }
+
+            cancelAddGateway();
+        }
     });
 }
 
-function enableAddGatewayTool() {
-    isAddingGatewayMode = true;
-    document.getElementById('add-gateway-banner').classList.remove('hidden');
+// Tile Theme Switcher
+function changeTileTheme() {
+    const theme = document.getElementById('select-tile-theme').value;
+    map.removeLayer(baseTileLayer);
+
+    if (theme === 'osm_standard') {
+        baseTileLayer = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+            maxZoom: 19
+        });
+    } else if (theme === 'carto_voyager') {
+        baseTileLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/">CARTO</a>',
+            subdomains: 'abcd',
+            maxZoom: 19
+        });
+    } else {
+        baseTileLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
+            attribution: 'Tiles &copy; Esri &mdash; Esri, DeLorme, NAVTEQ',
+            maxZoom: 19
+        });
+    }
+
+    baseTileLayer.addTo(map);
+}
+
+// AOI Drawing Tool Controls
+function startDrawAOI() {
+    isDrawingAOIMode = true;
+    drawnAOIVertices = [];
+    clearTempAOIGraphics();
+    document.getElementById('draw-aoi-banner').classList.remove('hidden');
     map.getContainer().style.cursor = 'crosshair';
 }
 
-function cancelAddGateway() {
-    isAddingGatewayMode = false;
-    document.getElementById('add-gateway-banner').classList.add('hidden');
+function cancelDrawAOI() {
+    isDrawingAOIMode = false;
+    clearTempAOIGraphics();
+    document.getElementById('draw-aoi-banner').classList.add('hidden');
     map.getContainer().style.cursor = '';
+}
+
+function clearTempAOIGraphics() {
+    if (tempAOIPolyline) map.removeLayer(tempAOIPolyline);
+    tempAOIMarkers.forEach(m => map.removeLayer(m));
+    tempAOIPolyline = null;
+    tempAOIMarkers = [];
+}
+
+async function finishDrawAOI() {
+    if (drawnAOIVertices.length < 3) {
+        alert("Please click at least 3 points on the map to define a valid polygon boundary.");
+        return;
+    }
+
+    // Close polygon
+    const polygon = [...drawnAOIVertices, drawnAOIVertices[0]];
+
+    try {
+        const res = await fetch('/api/aoi', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ polygon: polygon })
+        });
+        const data = await res.json();
+        if (data.status === 'ok') {
+            updateAOIDisplay(data);
+        }
+    } catch (err) {
+        console.error("Failed to update AOI polygon:", err);
+    }
+
+    cancelDrawAOI();
+}
+
+async function resetAOIPolygon() {
+    try {
+        const res = await fetch('/api/aoi', { method: 'DELETE' });
+        const data = await res.json();
+        updateAOIDisplay(data);
+    } catch (err) {
+        console.error("Failed to reset AOI polygon:", err);
+    }
+}
+
+function updateAOIDisplay(data) {
+    // Reload full initial data to re-draw clipped road network and >30km/h gateways
+    loadInitialData();
 }
 
 // Fetch Initial Road Network Geometry, POIs, Boundary Polygon, & Gateways
@@ -107,20 +218,25 @@ async function loadInitialData() {
         const response = await fetch('/api/initial-data');
         const data = await response.json();
 
-        // 1. Draw Simulation Boundary Polygon (Cyan dashed ring)
-        if (data.boundary_polygon && data.boundary_polygon.length > 0) {
-            boundaryLayerGroup.clearLayers();
-            const boundaryPoly = L.polyline(data.boundary_polygon, {
+        // 1. Draw AOI Boundary Ring Polygon (Cyan glowing polygon)
+        boundaryLayerGroup.clearLayers();
+        if (data.aoi_polygon && data.aoi_polygon.length > 0) {
+            const boundaryPoly = L.polygon(data.aoi_polygon, {
                 color: '#38bdf8',
+                fillColor: '#38bdf8',
+                fillOpacity: 0.05,
                 weight: 2,
-                dashArray: '6, 6',
-                opacity: 0.8
+                dashArray: '6, 6'
             });
-            boundaryPoly.bindTooltip("<strong>Simulation Area Boundary Ring</strong>", { sticky: true });
+            boundaryPoly.bindTooltip("<strong>Defined Area of Interest (AOI) Ring</strong>", { sticky: true });
             boundaryLayerGroup.addLayer(boundaryPoly);
         }
 
-        // 2. Draw Road Network Polylines
+        // 2. Draw Clipped Road Network Polylines
+        // Clear previous polylines
+        Object.keys(edgePolylines).forEach(k => map.removeLayer(edgePolylines[k]));
+        edgePolylines = {};
+
         data.edges.forEach(edge => {
             if (!edge.geometry || edge.geometry.length === 0) return;
 
@@ -141,6 +257,7 @@ async function loadInitialData() {
         });
 
         // 3. Draw POIs
+        poiLayerGroup.clearLayers();
         data.pois.forEach(poi => {
             const poiIcon = L.divIcon({
                 className: 'poi-marker-icon',
@@ -152,15 +269,28 @@ async function loadInitialData() {
             poiLayerGroup.addLayer(marker);
         });
 
-        // 4. Draw Clean Gateways
+        // 4. Draw AOI Gateways (>30km/h rule)
         gatewaysData = data.gateways || [];
         renderGatewayMarkers();
         renderGatewayManagerList();
 
-        console.log(`Loaded ${data.edges.length} edges, ${data.pois.length} POIs, ${gatewaysData.length} true gateways.`);
+        console.log(`Loaded ${data.edges.length} active AOI edges, ${data.pois.length} POIs, ${gatewaysData.length} AOI gateways (>30km/h).`);
     } catch (err) {
         console.error("Failed to load initial map data:", err);
     }
+}
+
+// Add Custom Gateway Tool
+function enableAddGatewayTool() {
+    isAddingGatewayMode = true;
+    document.getElementById('add-gateway-banner').classList.remove('hidden');
+    map.getContainer().style.cursor = 'crosshair';
+}
+
+function cancelAddGateway() {
+    isAddingGatewayMode = false;
+    document.getElementById('add-gateway-banner').classList.add('hidden');
+    map.getContainer().style.cursor = '';
 }
 
 // Render Gateway Map Markers
@@ -200,7 +330,7 @@ function renderGatewayMarkers() {
 function renderGatewayManagerList() {
     const container = document.getElementById('gateway-manager-list');
     if (!gatewaysData || gatewaysData.length === 0) {
-        container.innerHTML = `<p class="empty-msg">No active gateways.</p>`;
+        container.innerHTML = `<p class="empty-msg">No active AOI gateways (>30km/h).</p>`;
         return;
     }
 
@@ -285,7 +415,15 @@ function initWebSocket() {
 
 // Instant Effect Map Layer & Checkbox Controls
 function toggleLayerVisibility() {
-    // 1. POI Layer
+    // 1. AOI Boundary Layer
+    const showAoi = document.getElementById('chk-show-aoi').checked;
+    if (showAoi) {
+        if (!map.hasLayer(boundaryLayerGroup)) map.addLayer(boundaryLayerGroup);
+    } else {
+        if (map.hasLayer(boundaryLayerGroup)) map.removeLayer(boundaryLayerGroup);
+    }
+
+    // 2. POI Layer
     const showPois = document.getElementById('chk-show-pois').checked;
     if (showPois) {
         if (!map.hasLayer(poiLayerGroup)) map.addLayer(poiLayerGroup);
@@ -293,7 +431,7 @@ function toggleLayerVisibility() {
         if (map.hasLayer(poiLayerGroup)) map.removeLayer(poiLayerGroup);
     }
 
-    // 2. Gateway Layer
+    // 3. Gateway Layer
     const showGateways = document.getElementById('chk-show-gateways').checked;
     if (showGateways) {
         if (!map.hasLayer(gatewayLayerGroup)) map.addLayer(gatewayLayerGroup);
@@ -301,7 +439,7 @@ function toggleLayerVisibility() {
         if (map.hasLayer(gatewayLayerGroup)) map.removeLayer(gatewayLayerGroup);
     }
 
-    // 3. Congestion Lines Reset if hidden
+    // 4. Congestion Lines Reset if hidden
     const showCongestion = document.getElementById('chk-show-congestion').checked;
     if (!showCongestion) {
         Object.keys(edgePolylines).forEach(edgeId => {

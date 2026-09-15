@@ -8,24 +8,17 @@ An interactive, high-performance Python simulation software designed to model tr
 
 ## 🌟 Key Features
 
-* **Expanded Regional Road Network & GIS Topology**:
-  * Captures **2,607 nodes** and **5,714 road edges** covering Lucerne, Ebikon, Emmen/Seetalplatz, and Kriens via **OSMnx** / OpenStreetMap.
-  * Extracted **159 Points of Interest (POIs)** including *Bahnhof Luzern*, *Kapellbrücke*, *KKL Luzern*, *Löwendenkmal*, *Luzerner Kantonsspital (LUKS)*, and major supermarket hubs.
+* **Interactive Area of Interest (AOI) Polygon Drawer & Graph Clipping**:
+  * Planners can draw custom **AOI Boundary Polygons** directly on the Leaflet map canvas using the **"✍️ Draw AOI"** tool.
+  * Traffic calculations and road network physics are clipped strictly inside the defined AOI polygon.
 
-* **Directed Edge Boundary Crossing Gateway Algorithm**:
-  * Mathematically guarantees **zero false internal gateways** (internal roundabouts, intersections, and dead-ends inside Lucerne are 100% immune from being marked as gateways).
-  * Extracts **16 clean arterial gateway portals** where high-capacity roads cross the simulation perimeter boundary ring:
-    * **Gateway Maihof / Ebikon (Zürichstrasse - H2)**
-    * **Gateway Seetalplatz / Emmenbrücke (H26 / Sedel)**
-    * **Gateway A2 Süd (Luzern-Süd / Kriens / Schlund)**
-    * **Gateway A14 East (Ebikon / Buchrain)**
-    * **Gateway West (Bernstrasse / Littau / Malters - H10)**
-    * **Gateway Ost (Haldenstrasse / Meggen - H4)**
-    * **Gateway Horwerstrasse (Horw / Allmend)**
-  * **Interactive Gateway Manager UI**: View, edit capacity weights, enable/disable, or place custom portals directly on the Leaflet map canvas using the **"+ Add Gateway"** tool.
+* **Boundary Crossing Gateway Extraction ($> 30\text{ km/h}$ Rule)**:
+  * Gateways are extracted where roads cross the border of the drawn AOI polygon with a speed limit **$> 30\text{ km/h}$**.
+  * Residential $20\text{--}30\text{ km/h}$ zones, alleyways, and footpaths are automatically filtered out.
+  * Internal roundabouts (e.g. *Seetalplatz*) and internal intersections are 100% mathematically immune from being marked as gateways.
 
-* **Watermark-Free Dark Basemap**:
-  * Powered by **Esri World Dark Gray Canvas** tile server with zero `API KEY REQUIRED` watermarks.
+* **Watermark-Free Basemap Tile Switcher**:
+  * Integrated **Esri World Dark Gray Canvas**, **OpenStreetMap Standard**, and **CartoDB Voyager** tile servers with zero `API KEY REQUIRED` watermarks.
 
 * **3 Required Traffic Flow Categories**:
   1. **Internal ↔ Internal**: Resident commutes between residential neighborhoods, workplaces, and local POIs.
@@ -83,7 +76,7 @@ An interactive, high-performance Python simulation software designed to model tr
 
 ## 📚 Detailed Documentation (`docs/`)
 
-* 🚪 [**Gateway Specification**](docs/GATEWAY_SPECIFICATION.md): Directed edge boundary crossing algorithm, zero internal node proof, arterial corridors, and custom manager API.
+* 🚪 [**Gateway & AOI Specification**](docs/GATEWAY_SPECIFICATION.md): AOI polygon drawing, graph clipping, $> 30\text{ km/h}$ gateway extraction, and REST API.
 * 🚘 [**Traffic Simulation Model**](docs/TRAFFIC_SIMULATION_MODEL.md): BPR congestion formulas, vehicle kinematics, and dynamic rerouting.
 * 💻 [**API & GUI User Guide**](docs/API_AND_GUI_GUIDE.md): REST endpoints, WebSocket JSON schema, and interface controls.
 

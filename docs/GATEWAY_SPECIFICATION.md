@@ -1,66 +1,51 @@
-# 🚪 Lucerne Regional Gateway Portal Specification
+# 🚪 Lucerne Area of Interest (AOI) & Boundary Gateway Specification
 
-This document details the mathematical directed edge boundary crossing algorithms, official highway corridors, capacity weighting rules, and custom Gateway Manager architecture for the **Lucerne Traffic Flow Simulator**.
+This document details the Area of Interest (AOI) polygon drawing mechanism, spatial graph clipping, and the $> 30\text{ km/h}$ directed boundary crossing algorithm for the **Lucerne Traffic Flow Simulator**.
 
 ---
 
-## 1. Directed Spatial Edge Boundary Crossing Algorithm
+## 1. Interactive Area of Interest (AOI) Polygon Concept
 
-Traditional node-based heuristics (such as spatial distance to bounding box or convex hull) suffer from high false-positive rates by erroneously selecting internal roundabouts, intersections, or dead-ends inside the simulation study area.
-
-The simulator uses a **Directed Edge Boundary Crossing Algorithm** with **Mathematical Internal Node Immunity**:
+Instead of static administrative boundaries, planners can define their exact study region by drawing an **AOI Boundary Polygon** directly on the Leaflet map canvas:
 
 ```
-                       OUTSIDE SIMULATION REGION (Ext B)
-  ======================================================================== BOUNDARY RING (∂B)
-                        INSIDE SIMULATION REGION (Int B)
+           OUTSIDE SIMULATION REGION (Traffic Calculations Omitted)
+  ======================================================================== AOI BOUNDARY RING (∂P_AOI)
+           INSIDE SIMULATION REGION (Traffic & Physics Active)
 
-   Node u (OUTSIDE) -------> [Edge e (INFLOW)] -------> Node v (INSIDE)
-   Node u (INSIDE)  -------> [Edge e (OUTFLOW)] ------> Node v (OUTSIDE)
+    Outside Node u ------> [Edge e (maxspeed > 30 km/h)] ------> Inside Node v  ===> INFLOW GATEWAY
+    Inside Node u  ------> [Edge e (maxspeed > 30 km/h)] ------> Outside Node v ===> OUTFLOW GATEWAY
 ```
 
-### Mathematical Definitions
-1. **Simulation Region Polygon ($B$)**: A closed polygon enclosing the Lucerne study region.
-2. **Containment Predicate ($\text{loc}(v)$)**:
-   $$\text{loc}(v) = \begin{cases} \text{INSIDE} & \text{if } v \in \text{Int}(B) \\ \text{OUTSIDE} & \text{if } v \in \text{Ext}(B) \end{cases}$$
-3. **Directed Gateway Edge ($e = (u, v)$)**:
-   - **Inflow Gateway Edge**: $\text{loc}(u) = \text{OUTSIDE} \land \text{loc}(v) = \text{INSIDE}$.
-   - **Outflow Gateway Edge**: $\text{loc}(u) = \text{INSIDE} \land \text{loc}(v) = \text{OUTSIDE}$.
+### Key Principles
 
-### Guaranteed Internal Node Immunity
-For any internal node $w \in \text{Int}(B)$ (such as a roundabout at Seetalplatz or Kasernenplatz, an internal junction, or dead-end inside Lucerne), all connected edges $e = (u, w)$ have both endpoints inside $B$ ($\text{loc}(u) = \text{INSIDE}$ and $\text{loc}(w) = \text{INSIDE}$). Since $\text{loc}(u) = \text{loc}(w)$, **internal roundabouts and internal intersections are mathematically IMMUNE to being designated as gateways.**
+1. **Graph & Traffic Clipping**:
+   - Only road network edges located inside or intersecting the user's drawn AOI polygon $P_{\text{AOI}}$ are included in traffic simulation calculations.
+   - Roads outside $P_{\text{AOI}}$ are omitted to maximize performance and focus analysis strictly on the study area.
 
----
+2. **Boundary Crossing Gateways ($> 30\text{ km/h}$ Rule)**:
+   - Gateways are extracted as directed edges $(u, v)$ crossing the border of $P_{\text{AOI}}$ (one endpoint outside $P_{\text{AOI}}$ and one endpoint inside $P_{\text{AOI}}$).
+   - **Speed Limit Filter**: Only roads with speed limit **$> 30\text{ km/h}$** (`maxspeed > 30`) are designated as gateways. Residential $20\text{--}30\text{ km/h}$ zones, alleyways, and footpaths are automatically filtered out.
 
-## 2. Official Gateway Corridor Matrix
-
-The algorithm identifies **16 clean arterial gateway portals** located strictly at the perimeter ring of the study area:
-
-| Portal ID | Gateway Name | Primary Highway | OSM Classification | Capacity Weight |
-| :--- | :--- | :--- | :--- | :--- |
-| `gw_a2_south` | **Gateway A2 Süd (Luzern-Süd / Kriens / Schlund)** | A2 / N2 | `motorway` | **10.0x** |
-| `gw_a2_kasernenplatz` | **Gateway A2 Kasernenplatz / Reussport** | A2 / N2 | `motorway`, `primary` | **10.0x** |
-| `gw_a2_sedel` | **Gateway A2 Sedel / Emmen Süd** | A2 / N2 | `motorway`, `primary` | **10.0x** |
-| `gw_a14_east` | **Gateway A14 East (Ebikon / Buchrain)** | A14 / N14 | `motorway` | **10.0x** |
-| `gw_maihof` | **Gateway Maihof / Ebikon (Zürichstrasse)** | Hauptstrasse 2 (H2) | `primary` | **6.0x** |
-| `gw_seetalplatz` | **Gateway Seetalplatz / Emmenbrücke** | Hauptstrasse 26 (H26) | `primary` | **6.0x** |
-| `gw_bernstrasse` | **Gateway West (Bernstrasse / Littau / Malters)** | Hauptstrasse 10 (H10) | `primary` | **6.0x** |
-| `gw_haldenstrasse` | **Gateway Ost (Haldenstrasse / Meggen)** | Hauptstrasse 4 (H4) | `primary` | **6.0x** |
-| `gw_horwerstrasse` | **Gateway Horwerstrasse (Horw / Allmend)** | Regional Arterial | `secondary` | **4.0x** |
+3. **Guaranteed Internal Node Immunity**:
+   - Roundabouts (e.g. Seetalplatz), internal intersections, and internal dead-ends have all their nodes inside $P_{\text{AOI}}$.
+   - Since both endpoints are inside $P_{\text{AOI}}$, **internal roundabouts and junctions are mathematically 100% immune from being marked as gateways.**
 
 ---
 
-## 3. Watermark-Free Map Tile Basemap
+## 2. Watermark-Free Basemap Tile Options
 
-The map canvas uses **Esri World Dark Gray Canvas**:
-- **Tile URL**: `https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}`
-- **Attribution**: `Tiles &copy; Esri &mdash; Esri, DeLorme, NAVTEQ`
-- **Result**: Crisp dark aesthetic with **zero `API KEY REQUIRED` watermarks**.
+The application includes a live **Basemap Tile Theme Switcher**:
+1. **Esri World Dark Gray Canvas** (`https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}`) - *Default (Watermark-Free)*.
+2. **OpenStreetMap Standard** (`https://tile.openstreetmap.org/{z}/{x}/{y}.png`).
+3. **CartoDB Voyager** (`https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png`).
 
 ---
 
-## 4. Custom Gateway Manager UI
+## 3. AOI Persistence & REST API
 
-Traffic planners can dynamically manage or add custom gateway portals:
-- **Persistence**: `data/gateways.json`
-- **Canvas Tool**: Click **+ Add Gateway** in the sidebar, then click anywhere on the Leaflet map canvas to drop a custom portal snapped to the nearest road network node.
+* **Persistence File**: `data/aoi_polygon.json`
+* **REST Endpoints**:
+  * `GET /api/aoi`: Returns active AOI polygon coordinates, clipped edge count, and gateways.
+  * `POST /api/aoi`: Receives new `{ "polygon": [[lat, lon], ...] }`, clips road graph, extracts $> 30\text{ km/h}$ gateways, and hot-reloads simulation engine.
+  * `DELETE /api/aoi`: Resets to default Lucerne AOI polygon.

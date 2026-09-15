@@ -7,43 +7,42 @@ import networkx as nx
 import pandas as pd
 import numpy as np
 from shapely.geometry import Point, LineString, Polygon, MultiPoint
-from shapely.ops import transform
-import pyproj
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("DataLoader")
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
 CACHE_FILE = os.path.join(DATA_DIR, "lucerne_data_cache.json")
+AOI_FILE = os.path.join(DATA_DIR, "aoi_polygon.json")
 GATEWAYS_FILE = os.path.join(DATA_DIR, "gateways.json")
-
-ALLOWED_HIGHWAYS = {
-    'motorway', 'motorway_link', 
-    'trunk', 'trunk_link', 
-    'primary', 'primary_link', 
-    'secondary', 'secondary_link'
-}
 
 HIGHWAY_WEIGHTS = {
     'motorway': 10.0, 'motorway_link': 8.0,
     'trunk': 8.0, 'trunk_link': 7.0,
     'primary': 6.0, 'primary_link': 5.0,
-    'secondary': 4.0, 'secondary_link': 3.0
+    'secondary': 4.0, 'secondary_link': 3.0,
+    'tertiary': 2.0
 }
+
+DEFAULT_AOI_COORDS = [
+    [47.070, 8.270], [47.075, 8.300], [47.065, 8.340], [47.045, 8.350],
+    [47.030, 8.335], [47.020, 8.310], [47.025, 8.270], [47.045, 8.255],
+    [47.070, 8.270]
+]
 
 class LucerneDataLoader:
     def __init__(self, place_name="Lucerne, Switzerland"):
         self.place_name = place_name
         self.graph = None
-        self.graph_proj = None
         self.nodes_dict = {}
         self.edges_list = []
+        self.all_edges_list = []  # Unclipped master edge set
         self.pois = []
         self.residential_nodes = []
         self.commercial_nodes = []
         self.gateway_nodes = []
         self.gateway_details = []
-        self.boundary_polygon_coords = []
+        self.aoi_polygon_coords = DEFAULT_AOI_COORDS
         
     def load_data(self, use_cache=True):
         os.makedirs(DATA_DIR, exist_ok=True)
@@ -54,9 +53,10 @@ class LucerneDataLoader:
                 with open(CACHE_FILE, "r", encoding="utf-8") as f:
                     data = json.load(f)
                     self._reconstruct_from_json(data)
-                    self._load_custom_gateways_override()
-                    logger.info(f"Loaded {len(self.nodes_dict)} nodes, {len(self.edges_list)} edges, "
-                                f"{len(self.pois)} POIs, {len(self.gateway_details)} gateways.")
+                    self._load_aoi_polygon_file()
+                    self.apply_aoi_clipping_and_gateways()
+                    logger.info(f"Loaded {len(self.nodes_dict)} nodes, {len(self.edges_list)} active AOI edges, "
+                                f"{len(self.pois)} POIs, {len(self.gateway_details)} AOI gateways.")
                     return True
             except Exception as e:
                 logger.warning(f"Failed to load cache: {e}. Re-fetching from OpenStreetMap...")
@@ -76,16 +76,12 @@ class LucerneDataLoader:
             logger.warning(f"ox.graph_from_place multi-place failed: {e}. Falling back to single query...")
             self.graph = ox.graph_from_place(self.place_name, network_type="drive", simplify=True)
 
-        logger.info(f"Network retrieved: {len(self.graph.nodes)} nodes, {len(self.graph.edges)} edges.")
-        
-        try:
-            self.graph_proj = ox.project_graph(self.graph, to_crs="EPSG:2056")
-        except Exception:
-            self.graph_proj = self.graph
+        logger.info(f"Master network retrieved: {len(self.graph.nodes)} nodes, {len(self.graph.edges)} edges.")
 
         self._extract_network_structure()
         self._fetch_pois_and_landuse()
-        self._extract_true_boundary_gateways()
+        self._load_aoi_polygon_file()
+        self.apply_aoi_clipping_and_gateways()
         self._save_cache()
         return True
 
@@ -106,7 +102,7 @@ class LucerneDataLoader:
                 "is_poi": False
             }
 
-        self.edges_list = []
+        self.all_edges_list = []
         edge_id_counter = 0
         for u, v, k, data in self.graph.edges(keys=True, data=True):
             length = float(data.get("length", 100.0))
@@ -160,8 +156,10 @@ class LucerneDataLoader:
                 "geometry": geometry_coords,
                 "free_flow_time": max(1.0, length / (maxspeed / 3.6))
             }
-            self.edges_list.append(edge_dict)
+            self.all_edges_list.append(edge_dict)
             edge_id_counter += 1
+
+        self.edges_list = list(self.all_edges_list)
 
     def _fetch_pois_and_landuse(self):
         logger.info("Extracting Points of Interest (POIs) and Land-use...")
@@ -248,69 +246,71 @@ class LucerneDataLoader:
                 self.nodes_dict[nearest]["is_poi"] = True
                 self.nodes_dict[nearest]["weight_dest"] += 15.0
 
-    def _extract_true_boundary_gateways(self):
+    def apply_aoi_clipping_and_gateways(self, polygon_coords=None):
         """
-        Directed Edge Boundary Crossing Algorithm.
-        Guarantees ZERO internal roundabouts or internal intersections become gateways.
-        Extracts directed boundary-crossing edges, prunes external loop pass-throughs,
-        and clusters adjacent bi-directional portals into clean Gateway Corridors.
+        Clips road graph strictly inside user-defined AOI Polygon.
+        Computes Gateways as directed edges crossing AOI border with speed > 30 km/h.
+        Guarantees zero internal roundabouts or internal intersections become gateways.
         """
-        logger.info("Computing Directed Spatial Edge Boundary Crossings...")
+        if polygon_coords:
+            self.aoi_polygon_coords = polygon_coords
+            self._save_aoi_polygon_file()
 
-        # 1. Define Lucerne Study Area Boundary Ring Polygon (around urban core)
-        # Lat/Lon bounding polygon enclosing central Lucerne, Kriens, Emmen, Ebikon
-        boundary_coords = [
-            (8.270, 47.070), (8.300, 47.075), (8.340, 47.065), (8.350, 47.045),
-            (8.335, 47.030), (8.310, 47.020), (8.270, 47.025), (8.255, 47.045),
-            (8.270, 47.070)
-        ]
-        self.boundary_polygon_coords = [[lat, lon] for lon, lat in boundary_coords]
-        boundary_poly = Polygon(boundary_coords)
-        boundary_ring = boundary_poly.exterior
+        # Format polygon: Shapely expects (lon, lat)
+        shapely_poly_coords = [(lon, lat) for lat, lon in self.aoi_polygon_coords]
+        aoi_poly = Polygon(shapely_poly_coords)
+        aoi_ring = aoi_poly.exterior
 
-        # 2. Classify Node Containment (INSIDE vs OUTSIDE)
+        # 1. Containment Test
         node_containment = {}
         for n_id, n_data in self.nodes_dict.items():
             pt = Point(n_data["lon"], n_data["lat"])
-            node_containment[n_id] = "INSIDE" if boundary_poly.contains(pt) else "OUTSIDE"
+            node_containment[n_id] = "INSIDE" if aoi_poly.contains(pt) else "OUTSIDE"
 
-        # 3. Directed Edge Crossing Filter
-        crossing_edges = []
+        # 2. Graph Clipping: keep edges with at least 1 node inside AOI
+        self.edges_list = [
+            e for e in self.all_edges_list
+            if node_containment.get(e["u"]) == "INSIDE" or node_containment.get(e["v"]) == "INSIDE"
+        ]
+
+        # 3. Gateway Boundary Crossing (> 30 km/h Rule)
+        crossing_gateways = []
         for edge in self.edges_list:
             u_id, v_id = edge["u"], edge["v"]
             loc_u = node_containment.get(u_id, "OUTSIDE")
             loc_v = node_containment.get(v_id, "OUTSIDE")
 
-            # Guaranteed Elimination: Skip edges where both u and v are INSIDE (Internal roundabouts/junctions)
+            # Guaranteed Elimination: skip edges where both nodes are INSIDE (Internal roundabouts/junctions)
             if loc_u == loc_v:
                 continue
 
-            highway = edge["highway"]
-            if highway not in ALLOWED_HIGHWAYS:
-                continue  # Skip residential, service, tertiary, footways
+            # Speed limit rule: ONLY roads with maxspeed > 30 km/h can be gateways
+            if edge["maxspeed"] <= 30.0:
+                continue
 
             direction = "INFLOW" if (loc_u == "OUTSIDE" and loc_v == "INSIDE") else "OUTFLOW"
 
-            # Compute boundary intersection point
             u_node = self.nodes_dict[u_id]
             v_node = self.nodes_dict[v_id]
             edge_line = LineString([(u_node["lon"], u_node["lat"]), (v_node["lon"], v_node["lat"])])
 
-            intersection = edge_line.intersection(boundary_ring)
+            intersection = edge_line.intersection(aoi_ring)
             if intersection.is_empty:
-                lat_cross, lon_cross = v_node["lat"] if direction == "INFLOW" else u_node["lat"], v_node["lon"] if direction == "INFLOW" else u_node["lon"]
+                lat_cross = v_node["lat"] if direction == "INFLOW" else u_node["lat"]
+                lon_cross = v_node["lon"] if direction == "INFLOW" else u_node["lon"]
             elif isinstance(intersection, Point):
                 lat_cross, lon_cross = intersection.y, intersection.x
             else:
                 lat_cross, lon_cross = intersection.centroid.y, intersection.centroid.x
 
             target_node_id = v_id if direction == "INFLOW" else u_id
-            weight = HIGHWAY_WEIGHTS.get(highway, 3.0)
+            highway = edge["highway"]
+            weight = HIGHWAY_WEIGHTS.get(highway, 4.0)
             road_name = edge["name"]
 
-            corridor_name = self._resolve_corridor_name(lat_cross, lon_cross, highway, road_name)
+            portal_name = f"AOI Gateway: {road_name} ({int(edge['maxspeed'])} km/h)"
 
-            crossing_edges.append({
+            crossing_gateways.append({
                 "edge_id": edge["edge_id"],
                 "node_id": target_node_id,
                 "direction": direction,
@@ -318,19 +318,20 @@ class LucerneDataLoader:
                 "lon": lon_cross,
                 "highway": highway,
                 "road_name": road_name,
-                "corridor_name": corridor_name,
+                "portal_name": portal_name,
+                "maxspeed": edge["maxspeed"],
                 "weight": weight
             })
 
-        # 4. Spatial Clustering (merge adjacent portals of same road within ~250m)
+        # 4. Cluster dual carriageway crossings within ~150m
         clustered = {}
-        for c in crossing_edges:
+        for c in crossing_gateways:
             key = f"{round(c['lat'], 3)}_{round(c['lon'], 3)}"
             if key not in clustered or c["weight"] > clustered[key]["weight"]:
                 clustered[key] = {
-                    "id": f"gw_portal_{c['node_id']}",
+                    "id": f"gw_aoi_{c['node_id']}",
                     "node_id": c["node_id"],
-                    "name": c["corridor_name"],
+                    "name": c["portal_name"],
                     "corridor_type": c["highway"],
                     "lat": c["lat"],
                     "lon": c["lon"],
@@ -344,6 +345,9 @@ class LucerneDataLoader:
         self.gateway_details = list(clustered.values())
         self.gateway_nodes = [g["node_id"] for g in self.gateway_details if g["enabled"]]
 
+        for n_id, n in self.nodes_dict.items():
+            n["is_gateway"] = False
+
         for g in self.gateway_details:
             n_id = g["node_id"]
             if n_id in self.nodes_dict:
@@ -351,28 +355,8 @@ class LucerneDataLoader:
                 self.nodes_dict[n_id]["gateway_weight"] = g["weight"]
                 self.nodes_dict[n_id]["gateway_name"] = g["name"]
 
-        logger.info(f"Identified {len(self.gateway_details)} clean true boundary gateway portals.")
+        logger.info(f"Applied AOI clipping: {len(self.edges_list)} active edges, {len(self.gateway_details)} gateways (>30 km/h).")
         self.save_gateways_to_json()
-
-    def _resolve_corridor_name(self, lat, lon, highway, road_name):
-        """Map portal lat/lon to official regional corridor names."""
-        if lat >= 47.065 and lon >= 8.315:
-            return "Gateway Maihof / Ebikon (Zürichstrasse - H2)"
-        elif lat >= 47.065 and lon < 8.300:
-            return "Gateway Seetalplatz / Emmenbrücke (H26 / Sedel)"
-        elif lat <= 47.030 and lon <= 8.300:
-            return "Gateway A2 Süd (Luzern-Süd / Kriens / Schlund)"
-        elif lat <= 47.030 and lon > 8.300:
-            return "Gateway Horwerstrasse (Horw / Allmend)"
-        elif lon <= 8.265:
-            return "Gateway West (Bernstrasse / Littau / Malters - H10)"
-        elif lon >= 8.340:
-            return "Gateway Ost (Haldenstrasse / Meggen - H4)"
-        elif "motorway" in highway:
-            return f"Autobahn Portal ({road_name})"
-        elif "primary" in highway:
-            return f"Hauptstrasse Corridor ({road_name})"
-        return f"Regional Arterial ({road_name})"
 
     def find_nearest_node(self, lat, lon):
         best_node = None
@@ -391,29 +375,34 @@ class LucerneDataLoader:
         }
         with open(GATEWAYS_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
-        logger.info(f"Saved {len(self.gateway_details)} gateways to '{GATEWAYS_FILE}'.")
 
-    def _load_custom_gateways_override(self):
-        if os.path.exists(GATEWAYS_FILE):
+    def _save_aoi_polygon_file(self):
+        data = {
+            "polygon": self.aoi_polygon_coords
+        }
+        with open(AOI_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+
+    def _load_aoi_polygon_file(self):
+        if os.path.exists(AOI_FILE):
             try:
-                with open(GATEWAYS_FILE, "r", encoding="utf-8") as f:
+                with open(AOI_FILE, "r", encoding="utf-8") as f:
                     data = json.load(f)
-                    if "gateways" in data and len(data["gateways"]) > 0:
-                        self.gateway_details = data["gateways"]
-                        self.gateway_nodes = [g["node_id"] for g in self.gateway_details if g.get("enabled", True)]
+                    if "polygon" in data and len(data["polygon"]) >= 3:
+                        self.aoi_polygon_coords = data["polygon"]
             except Exception as e:
-                logger.warning(f"Failed to load custom gateways file: {e}")
+                logger.warning(f"Failed to load AOI file: {e}")
 
     def _save_cache(self):
         data = {
             "nodes": self.nodes_dict,
-            "edges": self.edges_list,
+            "edges": self.all_edges_list,
             "pois": self.pois,
             "residential_nodes": self.residential_nodes,
             "commercial_nodes": self.commercial_nodes,
             "gateway_nodes": self.gateway_nodes,
             "gateway_details": self.gateway_details,
-            "boundary_polygon_coords": self.boundary_polygon_coords
+            "aoi_polygon_coords": self.aoi_polygon_coords
         }
         with open(CACHE_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
@@ -421,16 +410,17 @@ class LucerneDataLoader:
 
     def _reconstruct_from_json(self, data):
         self.nodes_dict = data["nodes"]
-        self.edges_list = data["edges"]
+        self.all_edges_list = data["edges"]
+        self.edges_list = list(self.all_edges_list)
         self.pois = data["pois"]
         self.residential_nodes = data["residential_nodes"]
         self.commercial_nodes = data["commercial_nodes"]
-        self.gateway_nodes = data["gateway_nodes"]
+        self.gateway_nodes = data.get("gateway_nodes", [])
         self.gateway_details = data.get("gateway_details", [])
-        self.boundary_polygon_coords = data.get("boundary_polygon_coords", [])
+        self.aoi_polygon_coords = data.get("aoi_polygon_coords", DEFAULT_AOI_COORDS)
 
 
 if __name__ == "__main__":
     loader = LucerneDataLoader()
     loader.load_data(use_cache=False)
-    print("DataLoader test completed successfully!")
+    print("DataLoader AOI test completed successfully!")
