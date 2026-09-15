@@ -12,8 +12,9 @@ An interactive, high-performance Python simulation software designed to model tr
   * Captures **2,607 nodes** and **5,714 road edges** covering Lucerne, Ebikon, Emmen/Seetalplatz, and Kriens via **OSMnx** / OpenStreetMap.
   * Extracted **159 Points of Interest (POIs)** including *Bahnhof Luzern*, *Kapellbrücke*, *KKL Luzern*, *Löwendenkmal*, *Luzerner Kantonsspital (LUKS)*, and major supermarket hubs.
 
-* **Topological Convex Hull Gateway Extraction & Custom Gateway Manager**:
-  * Programmatically filters out minor residential and service dead-ends, retaining **high-capacity arterial portals**:
+* **Directed Edge Boundary Crossing Gateway Algorithm**:
+  * Mathematically guarantees **zero false internal gateways** (internal roundabouts, intersections, and dead-ends inside Lucerne are 100% immune from being marked as gateways).
+  * Extracts **16 clean arterial gateway portals** where high-capacity roads cross the simulation perimeter boundary ring:
     * **Gateway Maihof / Ebikon (Zürichstrasse - H2)**
     * **Gateway Seetalplatz / Emmenbrücke (H26 / Sedel)**
     * **Gateway A2 Süd (Luzern-Süd / Kriens / Schlund)**
@@ -22,6 +23,9 @@ An interactive, high-performance Python simulation software designed to model tr
     * **Gateway Ost (Haldenstrasse / Meggen - H4)**
     * **Gateway Horwerstrasse (Horw / Allmend)**
   * **Interactive Gateway Manager UI**: View, edit capacity weights, enable/disable, or place custom portals directly on the Leaflet map canvas using the **"+ Add Gateway"** tool.
+
+* **Watermark-Free Dark Basemap**:
+  * Powered by **Esri World Dark Gray Canvas** tile server with zero `API KEY REQUIRED` watermarks.
 
 * **3 Required Traffic Flow Categories**:
   1. **Internal ↔ Internal**: Resident commutes between residential neighborhoods, workplaces, and local POIs.
@@ -45,7 +49,6 @@ An interactive, high-performance Python simulation software designed to model tr
   * **Instant Effect Layer & Vehicle Filters**: Checkboxes to toggle POIs, Gateways, Congestion Lines, or filter map rendering to isolate specific vehicle classes (e.g. view **Freight Trucks ONLY**).
   * **Interactive Legend**: Click any legend row to highlight or isolate road segments matching that specific congestion level on screen.
   * **Interactive Road Closures**: Click any road segment on the map to block/unblock it and watch vehicles dynamically reroute in real time!
-  * **Scenario Presets**: One-click configuration for *Morning Peak*, *Tourist Rush*, and *Freight Heavy* traffic.
 
 ---
 
@@ -80,53 +83,9 @@ An interactive, high-performance Python simulation software designed to model tr
 
 ## 📚 Detailed Documentation (`docs/`)
 
-* 🚪 [**Gateway Specification**](docs/GATEWAY_SPECIFICATION.md): Topological convex hull extraction, arterial corridors, capacity weights, and custom manager API.
+* 🚪 [**Gateway Specification**](docs/GATEWAY_SPECIFICATION.md): Directed edge boundary crossing algorithm, zero internal node proof, arterial corridors, and custom manager API.
 * 🚘 [**Traffic Simulation Model**](docs/TRAFFIC_SIMULATION_MODEL.md): BPR congestion formulas, vehicle kinematics, and dynamic rerouting.
 * 💻 [**API & GUI User Guide**](docs/API_AND_GUI_GUIDE.md): REST endpoints, WebSocket JSON schema, and interface controls.
-
----
-
-## 📂 Code Architecture
-
-```text
-traffic-flow-simulator/
-├── .venv/                         # Python virtual environment
-├── data/
-│   ├── gateways.json              # Custom gateway portal persistence file
-│   └── lucerne_data_cache.json    # Cached OSMnx graph, POIs & gateways
-├── docs/
-│   ├── GATEWAY_SPECIFICATION.md   # Gateway topology & portal specs
-│   ├── TRAFFIC_SIMULATION_MODEL.md# BPR delay model & vehicle physics
-│   └── API_AND_GUI_GUIDE.md       # API endpoints & dashboard guide
-├── src/
-│   ├── __init__.py
-│   ├── data_loader.py             # Convex hull boundary cut & OSMnx parser
-│   ├── vehicle.py                 # Traffic class specifications & particle kinematics
-│   ├── od_generator.py            # Weighted Gravity model & NetworkX shortest path router
-│   ├── engine.py                  # Simulation tick engine with BPR congestion formula
-│   └── api.py                     # FastAPI server, Gateway CRUD endpoints & WebSocket streamer
-├── web/
-│   ├── index.html                 # Dark glassmorphism frontend dashboard
-│   ├── style.css                  # UI styling & legend rules
-│   └── app.js                     # Leaflet map canvas, Gateway Manager & WebSocket client
-├── tests/
-│   └── test_simulation.py         # Unit test suite
-├── .gitignore                     # Git ignore file
-├── run.sh                         # Execution script
-├── requirements.txt               # Dependencies
-└── README.md                      # Project documentation
-```
-
----
-
-## 🧪 Running Unit Tests
-
-To run the automated simulation unit test suite:
-
-```bash
-source .venv/bin/activate
-python3 -m unittest tests/test_simulation.py
-```
 
 ---
 

@@ -77,7 +77,7 @@ async def get_index():
 
 @app.get("/api/initial-data")
 async def get_initial_data():
-    """Returns static road network geometry, POIs, gateways, and building nodes for UI map rendering."""
+    """Returns static road network geometry, POIs, gateways, and boundary polygon for UI map rendering."""
     network_edges = [
         {
             "id": e["edge_id"],
@@ -93,7 +93,8 @@ async def get_initial_data():
     return {
         "edges": network_edges,
         "pois": data_loader.pois,
-        "gateways": data_loader.gateway_details
+        "gateways": data_loader.gateway_details,
+        "boundary_polygon": data_loader.boundary_polygon_coords
     }
 
 # Gateway Manager Pydantic Schemas

@@ -6,6 +6,7 @@ let vehicleMarkers = {}; // vehicle_id -> L.circleMarker
 let gatewayMarkers = {}; // gateway_id -> L.marker
 let poiLayerGroup;
 let gatewayLayerGroup;
+let boundaryLayerGroup;
 
 let gatewaysData = [];
 let isAddingGatewayMode = false;
@@ -32,7 +33,7 @@ document.addEventListener("DOMContentLoaded", () => {
     initWebSocket();
 });
 
-// Initialize Leaflet Map Canvas
+// Initialize Leaflet Map Canvas with Esri Dark Gray Canvas (Watermark Free)
 function initMap() {
     map = L.map('map', {
         center: [47.0502, 8.3103],
@@ -42,13 +43,13 @@ function initMap() {
 
     L.control.zoom({ position: 'bottomright' }).addTo(map);
 
-    // Dark Matter basemap tiles
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/">CARTO</a>',
-        subdomains: 'abcd',
+    // Esri World Dark Gray Base Tile Server (100% Free & Watermark-Free)
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
+        attribution: 'Tiles &copy; Esri &mdash; Esri, DeLorme, NAVTEQ',
         maxZoom: 19
     }).addTo(map);
 
+    boundaryLayerGroup = L.layerGroup().addTo(map);
     poiLayerGroup = L.layerGroup().addTo(map);
     gatewayLayerGroup = L.layerGroup().addTo(map);
 
@@ -58,7 +59,7 @@ function initMap() {
 
         const lat = e.latlng.lat;
         const lon = e.latlng.lng;
-        const name = prompt("Enter Custom Gateway Portal Name:", "Custom Regional Gateway");
+        const name = prompt("Enter Custom Gateway Portal Name:", "Custom Boundary Portal");
         if (!name) {
             cancelAddGateway();
             return;
@@ -100,13 +101,26 @@ function cancelAddGateway() {
     map.getContainer().style.cursor = '';
 }
 
-// Fetch Initial Road Network Geometry & POIs from Backend
+// Fetch Initial Road Network Geometry, POIs, Boundary Polygon, & Gateways
 async function loadInitialData() {
     try {
         const response = await fetch('/api/initial-data');
         const data = await response.json();
 
-        // 1. Draw Road Network Polylines
+        // 1. Draw Simulation Boundary Polygon (Cyan dashed ring)
+        if (data.boundary_polygon && data.boundary_polygon.length > 0) {
+            boundaryLayerGroup.clearLayers();
+            const boundaryPoly = L.polyline(data.boundary_polygon, {
+                color: '#38bdf8',
+                weight: 2,
+                dashArray: '6, 6',
+                opacity: 0.8
+            });
+            boundaryPoly.bindTooltip("<strong>Simulation Area Boundary Ring</strong>", { sticky: true });
+            boundaryLayerGroup.addLayer(boundaryPoly);
+        }
+
+        // 2. Draw Road Network Polylines
         data.edges.forEach(edge => {
             if (!edge.geometry || edge.geometry.length === 0) return;
 
@@ -126,7 +140,7 @@ async function loadInitialData() {
             edgePolylines[edge.id] = polyline;
         });
 
-        // 2. Draw POIs
+        // 3. Draw POIs
         data.pois.forEach(poi => {
             const poiIcon = L.divIcon({
                 className: 'poi-marker-icon',
@@ -138,12 +152,12 @@ async function loadInitialData() {
             poiLayerGroup.addLayer(marker);
         });
 
-        // 3. Draw Gateways
+        // 4. Draw Clean Gateways
         gatewaysData = data.gateways || [];
         renderGatewayMarkers();
         renderGatewayManagerList();
 
-        console.log(`Loaded ${data.edges.length} edges, ${data.pois.length} POIs, ${gatewaysData.length} gateways.`);
+        console.log(`Loaded ${data.edges.length} edges, ${data.pois.length} POIs, ${gatewaysData.length} true gateways.`);
     } catch (err) {
         console.error("Failed to load initial map data:", err);
     }
@@ -159,11 +173,11 @@ function renderGatewayMarkers() {
 
         const isHighCap = gw.weight >= 6.0;
         const color = gw.is_custom ? '#10b981' : (isHighCap ? '#a855f7' : '#f59e0b');
-        const size = isHighCap ? 14 : 10;
+        const size = isHighCap ? 16 : 12;
 
         const gwIcon = L.divIcon({
             className: 'gw-marker-icon',
-            html: `<div style="background-color:${color}; width:${size}px; height:${size}px; transform:rotate(45deg); box-shadow:0 0 10px ${color}; cursor:pointer;"></div>`,
+            html: `<div style="background-color:${color}; border:2px solid #ffffff; width:${size}px; height:${size}px; border-radius:3px; transform:rotate(45deg); box-shadow:0 0 12px ${color}; cursor:pointer;"></div>`,
             iconSize: [size, size]
         });
 
@@ -172,7 +186,7 @@ function renderGatewayMarkers() {
                 <div style="font-size:12px;">
                     <strong>🚪 ${gw.name}</strong><br>
                     Capacity Weight: <strong>${gw.weight}x</strong><br>
-                    Type: ${gw.corridor_type}<br>
+                    Corridor Class: ${gw.corridor_type}<br>
                     <button style="margin-top:6px; padding:2px 6px; font-size:10px; cursor:pointer;" onclick="deleteGateway('${gw.id}')">Delete Gateway</button>
                 </div>
             `);
@@ -295,7 +309,6 @@ function toggleLayerVisibility() {
         });
     }
 
-    // Instantly filter visible vehicle markers on map
     filterVehicleMarkersInstant();
 }
 
@@ -326,7 +339,7 @@ function filterVehicleMarkersInstant() {
 // Interactive Legend Filtering
 function filterLegend(colorName) {
     if (activeLegendFilter === colorName) {
-        activeLegendFilter = null; // Toggle off
+        activeLegendFilter = null;
     } else {
         activeLegendFilter = colorName;
     }
