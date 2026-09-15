@@ -77,7 +77,7 @@ async def get_index():
 
 @app.get("/api/initial-data")
 async def get_initial_data():
-    """Returns static road network geometry, POIs, gateways, and AOI polygon for UI map rendering."""
+    """Returns static road network geometry, master highspeed edges, POIs, gateways, and AOI polygon for UI map rendering."""
     network_edges = [
         {
             "id": e["edge_id"],
@@ -90,8 +90,24 @@ async def get_initial_data():
         for e in data_loader.edges_list
     ]
     
+    master_highspeed_edges = [
+        {
+            "id": e["edge_id"],
+            "name": e["name"],
+            "highway": e["highway"],
+            "maxspeed": e["maxspeed"],
+            "u_lat": data_loader.nodes_dict[e["u"]]["lat"],
+            "u_lon": data_loader.nodes_dict[e["u"]]["lon"],
+            "v_lat": data_loader.nodes_dict[e["v"]]["lat"],
+            "v_lon": data_loader.nodes_dict[e["v"]]["lon"]
+        }
+        for e in data_loader.all_edges_list
+        if e["maxspeed"] > 30.0 and e["u"] in data_loader.nodes_dict and e["v"] in data_loader.nodes_dict
+    ]
+    
     return {
         "edges": network_edges,
+        "master_highspeed_edges": master_highspeed_edges,
         "pois": data_loader.pois,
         "gateways": data_loader.gateway_details,
         "aoi_polygon": data_loader.aoi_polygon_coords
@@ -160,9 +176,11 @@ async def create_custom_gateway(payload: GatewayCreatePayload):
     if not nearest_node_id or nearest_node_id not in data_loader.nodes_dict:
         raise HTTPException(status_code=400, detail="Could not snap to nearest road network node.")
 
+    import time
     node_data = data_loader.nodes_dict[nearest_node_id]
+    gw_id = f"gw_custom_{nearest_node_id}_{int(time.time()*1000)}"
     new_gw = {
-        "id": f"gw_custom_{nearest_node_id}",
+        "id": gw_id,
         "node_id": nearest_node_id,
         "name": payload.name,
         "corridor_type": payload.corridor_type,

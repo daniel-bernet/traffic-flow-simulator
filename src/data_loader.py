@@ -36,7 +36,7 @@ class LucerneDataLoader:
         self.graph = None
         self.nodes_dict = {}
         self.edges_list = []
-        self.all_edges_list = []  # Unclipped master edge set
+        self.all_edges_list = []  # Unclipped master regional edge set
         self.pois = []
         self.residential_nodes = []
         self.commercial_nodes = []
@@ -48,20 +48,20 @@ class LucerneDataLoader:
         os.makedirs(DATA_DIR, exist_ok=True)
         
         if use_cache and os.path.exists(CACHE_FILE):
-            logger.info("Loading cached Lucerne network & POI data...")
+            logger.info("Loading cached Lucerne master network & POI data...")
             try:
                 with open(CACHE_FILE, "r", encoding="utf-8") as f:
                     data = json.load(f)
                     self._reconstruct_from_json(data)
                     self._load_aoi_polygon_file()
                     self.apply_aoi_clipping_and_gateways()
-                    logger.info(f"Loaded {len(self.nodes_dict)} nodes, {len(self.edges_list)} active AOI edges, "
+                    logger.info(f"Loaded {len(self.nodes_dict)} master nodes, {len(self.edges_list)} active AOI edges, "
                                 f"{len(self.pois)} POIs, {len(self.gateway_details)} AOI gateways.")
                     return True
             except Exception as e:
                 logger.warning(f"Failed to load cache: {e}. Re-fetching from OpenStreetMap...")
 
-        logger.info("Fetching Lucerne regional road network...")
+        logger.info("Fetching expanded master regional road network (Lucerne + outer ring)...")
         
         try:
             ox.settings.use_cache = True
@@ -69,14 +69,20 @@ class LucerneDataLoader:
         except AttributeError:
             pass
 
-        places = ["Lucerne, Switzerland", "Ebikon, Switzerland", "Emmen, Switzerland", "Kriens, Switzerland"]
+        # Expanded master list including Lucerne + all outer ring municipalities
+        places = [
+            "Lucerne, Switzerland", "Ebikon, Switzerland", "Emmen, Switzerland", 
+            "Kriens, Switzerland", "Horw, Switzerland", "Meggen, Switzerland", 
+            "Adligenswil, Switzerland", "Dierikon, Switzerland", "Buchrain, Switzerland", 
+            "Malters, Switzerland", "Rothenburg, Switzerland"
+        ]
         try:
             self.graph = ox.graph_from_place(places, network_type="drive", simplify=True)
         except Exception as e:
-            logger.warning(f"ox.graph_from_place multi-place failed: {e}. Falling back to single query...")
+            logger.warning(f"ox.graph_from_place multi-place failed: {e}. Falling back to regional place query...")
             self.graph = ox.graph_from_place(self.place_name, network_type="drive", simplify=True)
 
-        logger.info(f"Master network retrieved: {len(self.graph.nodes)} nodes, {len(self.graph.edges)} edges.")
+        logger.info(f"Expanded master network retrieved: {len(self.graph.nodes)} nodes, {len(self.graph.edges)} edges.")
 
         self._extract_network_structure()
         self._fetch_pois_and_landuse()
@@ -280,7 +286,7 @@ class LucerneDataLoader:
             loc_u = node_containment.get(u_id, "OUTSIDE")
             loc_v = node_containment.get(v_id, "OUTSIDE")
 
-            # Guaranteed Elimination: skip edges where both nodes are INSIDE (Internal roundabouts/junctions)
+            # Guaranteed Elimination: skip edges where both nodes are INSIDE
             if loc_u == loc_v:
                 continue
 
@@ -342,8 +348,10 @@ class LucerneDataLoader:
                     "is_custom": False
                 }
 
-        self.gateway_details = list(clustered.values())
-        self.gateway_nodes = [g["node_id"] for g in self.gateway_details if g["enabled"]]
+        # Preserve custom gateways added by user
+        existing_custom = [g for g in self.gateway_details if g.get("is_custom", False)]
+        self.gateway_details = list(clustered.values()) + existing_custom
+        self.gateway_nodes = [g["node_id"] for g in self.gateway_details if g.get("enabled", True)]
 
         for n_id, n in self.nodes_dict.items():
             n["is_gateway"] = False
@@ -351,9 +359,9 @@ class LucerneDataLoader:
         for g in self.gateway_details:
             n_id = g["node_id"]
             if n_id in self.nodes_dict:
-                self.nodes_dict[n_id]["is_gateway"] = True
-                self.nodes_dict[n_id]["gateway_weight"] = g["weight"]
-                self.nodes_dict[n_id]["gateway_name"] = g["name"]
+                self.nodes_dict[n_id]["is_gateway"] = g.get("enabled", True)
+                self.nodes_dict[n_id]["gateway_weight"] = g.get("weight", 1.0)
+                self.nodes_dict[n_id]["gateway_name"] = g.get("name", "")
 
         logger.info(f"Applied AOI clipping: {len(self.edges_list)} active edges, {len(self.gateway_details)} gateways (>30 km/h).")
         self.save_gateways_to_json()

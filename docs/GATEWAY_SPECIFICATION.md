@@ -42,10 +42,36 @@ The application includes a live **Basemap Tile Theme Switcher**:
 
 ---
 
-## 3. AOI Persistence & REST API
+## 4. Expanded Master Regional Graph Coverage
 
-* **Persistence File**: `data/aoi_polygon.json`
-* **REST Endpoints**:
-  * `GET /api/aoi`: Returns active AOI polygon coordinates, clipped edge count, and gateways.
-  * `POST /api/aoi`: Receives new `{ "polygon": [[lat, lon], ...] }`, clips road graph, extracts $> 30\text{ km/h}$ gateways, and hot-reloads simulation engine.
-  * `DELETE /api/aoi`: Resets to default Lucerne AOI polygon.
+To ensure that user-drawn AOI polygons never go out of bounds, the simulator fetches a comprehensive master regional road network encompassing **11 core and outer ring municipalities**:
+* **Core City**: Lucerne
+* **Outer Ring Municipalities**: Ebikon, Emmen, Kriens, Horw, Meggen, Adligenswil, Dierikon, Buchrain, Malters, Rothenburg.
+
+Master network size: **4,204 nodes** and **9,158 directed edges**.
+
+---
+
+## 5. Advanced Interactive AOI Drawer & Drag-and-Drop Tool
+
+The interactive web canvas provides full control over the AOI polygon boundary:
+
+1. **"Undo Last Node" (`↩️ Undo Node` / `Ctrl+Z` / `Backspace`)**:
+   - Allows planners to step backward while placing polygon boundary vertices.
+
+2. **Draggable Vertex Handles (`🖐️ Drag & Edit Handles`)**:
+   - Displays interactive handles on every polygon vertex.
+   - Dragging handles reshapes the AOI boundary in real time.
+   - Right-clicking or double-clicking a handle deletes that vertex.
+
+3. **Edge Midpoint Node Insertion**:
+   - Midpoint handles are rendered along each polygon edge segment.
+   - Dragging or clicking a midpoint handle instantly inserts a new vertex handle at that edge.
+
+4. **Real-Time Live Gateway Preview**:
+   - As the polygon is drawn or vertex handles are dragged, client-side ray-casting line intersection calculates where directed road edges with `maxspeed > 30 km/h` cross the candidate boundary ring.
+   - Pulsing amber diamond markers preview the exact gateway entry/exit portals that will be generated before applying changes.
+
+5. **Custom Gateway CRUD & Persistence**:
+   - Custom gateways created via map clicks snap to nearest master road graph nodes and persist in `data/gateways.json`.
+   - Custom gateways remain preserved even when the AOI boundary polygon is edited or reset.

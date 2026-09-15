@@ -467,3 +467,41 @@ input[type="range"] {
     color: var(--accent-blue);
     margin-top: auto;
 }
+
+/* AOI Handles & Live Preview Markers */
+.gw-preview-icon {
+    animation: pulse-glow 1.5s infinite alternate;
+}
+
+@keyframes pulse-glow {
+    from {
+        transform: rotate(45deg) scale(0.9);
+        box-shadow: 0 0 6px #f59e0b;
+    }
+    to {
+        transform: rotate(45deg) scale(1.2);
+        box-shadow: 0 0 16px #f59e0b;
+    }
+}
+
+.aoi-vertex-handle {
+    background: #38bdf8;
+    border: 2px solid #ffffff;
+    border-radius: 50%;
+    box-shadow: 0 0 10px #38bdf8;
+    cursor: move !important;
+}
+
+.aoi-midpoint-handle {
+    background: rgba(255, 255, 255, 0.8);
+    border: 2px dashed #38bdf8;
+    border-radius: 50%;
+    box-shadow: 0 0 6px rgba(56, 189, 248, 0.5);
+    cursor: pointer !important;
+}
+
+.aoi-midpoint-handle:hover {
+    background: #10b981;
+    border-color: #ffffff;
+    box-shadow: 0 0 12px #10b981;
+}

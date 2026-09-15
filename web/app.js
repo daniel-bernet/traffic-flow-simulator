@@ -8,12 +8,17 @@ let gatewayMarkers = {}; // gateway_id -> L.marker
 let poiLayerGroup;
 let gatewayLayerGroup;
 let boundaryLayerGroup;
+let previewGatewayLayerGroup;
+let aoiHandleLayerGroup;
 
 let gatewaysData = [];
-let isAddingGatewayMode = false;
+let masterHighspeedEdges = []; // All >30 km/h edges from master graph for live gateway preview
+let aoiPolygonCoords = []; // Current active AOI polygon ring
 
-// AOI Drawing State
+let isAddingGatewayMode = false;
 let isDrawingAOIMode = false;
+let isEditingAOIMode = false;
+
 let drawnAOIVertices = []; // [[lat, lon], ...]
 let tempAOIPolyline = null;
 let tempAOIMarkers = [];
@@ -39,6 +44,7 @@ document.addEventListener("DOMContentLoaded", () => {
     initMap();
     loadInitialData();
     initWebSocket();
+    initKeyboardShortcuts();
 });
 
 // Initialize Leaflet Map Canvas
@@ -60,31 +66,18 @@ function initMap() {
     boundaryLayerGroup = L.layerGroup().addTo(map);
     poiLayerGroup = L.layerGroup().addTo(map);
     gatewayLayerGroup = L.layerGroup().addTo(map);
+    previewGatewayLayerGroup = L.layerGroup().addTo(map);
+    aoiHandleLayerGroup = L.layerGroup().addTo(map);
 
-    // Map Click Handler for Gateway or AOI Drawing
+    // Map Click Handler for Gateway placement or AOI Drawing
     map.on('click', async (e) => {
         if (isDrawingAOIMode) {
-            // Add vertex to AOI polygon
             const lat = e.latlng.lat;
             const lon = e.latlng.lng;
             drawnAOIVertices.push([lat, lon]);
 
-            // Add marker dot for vertex
-            const marker = L.circleMarker([lat, lon], {
-                radius: 5,
-                fillColor: '#38bdf8',
-                color: '#ffffff',
-                weight: 2
-            }).addTo(map);
-            tempAOIMarkers.push(marker);
-
-            // Draw line connecting vertices
-            if (tempAOIPolyline) map.removeLayer(tempAOIPolyline);
-            tempAOIPolyline = L.polyline(drawnAOIVertices, {
-                color: '#38bdf8',
-                weight: 3,
-                dashArray: '4, 4'
-            }).addTo(map);
+            renderTempAOIGraphics();
+            updateLiveGatewayPreview(drawnAOIVertices);
             return;
         }
 
@@ -122,6 +115,23 @@ function initMap() {
     });
 }
 
+// Keyboard Shortcuts Listener
+function initKeyboardShortcuts() {
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            if (isDrawingAOIMode) cancelDrawAOI();
+            if (isAddingGatewayMode) cancelAddGateway();
+            if (isEditingAOIMode) toggleEditAOIMode();
+        } else if (isDrawingAOIMode) {
+            if (e.key === 'Enter') {
+                finishDrawAOI();
+            } else if (e.key === 'Backspace' || (e.ctrlKey && e.key === 'z')) {
+                undoLastAOINode();
+            }
+        }
+    });
+}
+
 // Tile Theme Switcher
 function changeTileTheme() {
     const theme = document.getElementById('select-tile-theme').value;
@@ -148,18 +158,33 @@ function changeTileTheme() {
     baseTileLayer.addTo(map);
 }
 
-// AOI Drawing Tool Controls
+// ==========================================
+// AOI Drawing & Interactive Editing Engine
+// ==========================================
+
 function startDrawAOI() {
+    if (isEditingAOIMode) toggleEditAOIMode();
+
     isDrawingAOIMode = true;
     drawnAOIVertices = [];
     clearTempAOIGraphics();
+    previewGatewayLayerGroup.clearLayers();
+
     document.getElementById('draw-aoi-banner').classList.remove('hidden');
     map.getContainer().style.cursor = 'crosshair';
+}
+
+function undoLastAOINode() {
+    if (!isDrawingAOIMode || drawnAOIVertices.length === 0) return;
+    drawnAOIVertices.pop();
+    renderTempAOIGraphics();
+    updateLiveGatewayPreview(drawnAOIVertices);
 }
 
 function cancelDrawAOI() {
     isDrawingAOIMode = false;
     clearTempAOIGraphics();
+    previewGatewayLayerGroup.clearLayers();
     document.getElementById('draw-aoi-banner').classList.add('hidden');
     map.getContainer().style.cursor = '';
 }
@@ -169,6 +194,28 @@ function clearTempAOIGraphics() {
     tempAOIMarkers.forEach(m => map.removeLayer(m));
     tempAOIPolyline = null;
     tempAOIMarkers = [];
+}
+
+function renderTempAOIGraphics() {
+    clearTempAOIGraphics();
+
+    drawnAOIVertices.forEach(v => {
+        const marker = L.circleMarker([v[0], v[1]], {
+            radius: 5,
+            fillColor: '#38bdf8',
+            color: '#ffffff',
+            weight: 2
+        }).addTo(map);
+        tempAOIMarkers.push(marker);
+    });
+
+    if (drawnAOIVertices.length >= 2) {
+        tempAOIPolyline = L.polyline(drawnAOIVertices, {
+            color: '#38bdf8',
+            weight: 3,
+            dashArray: '4, 4'
+        }).addTo(map);
+    }
 }
 
 async function finishDrawAOI() {
@@ -198,6 +245,7 @@ async function finishDrawAOI() {
 }
 
 async function resetAOIPolygon() {
+    if (isEditingAOIMode) toggleEditAOIMode();
     try {
         const res = await fetch('/api/aoi', { method: 'DELETE' });
         const data = await res.json();
@@ -208,8 +256,257 @@ async function resetAOIPolygon() {
 }
 
 function updateAOIDisplay(data) {
-    // Reload full initial data to re-draw clipped road network and >30km/h gateways
     loadInitialData();
+}
+
+// ------------------------------------------
+// Interactive Polygon Handles (Drag & Edit)
+// ------------------------------------------
+
+function toggleEditAOIMode() {
+    isEditingAOIMode = !isEditingAOIMode;
+    const btn = document.getElementById('btn-toggle-edit-aoi');
+
+    if (isEditingAOIMode) {
+        if (isDrawingAOIMode) cancelDrawAOI();
+
+        btn.innerText = '🖐️ Done Editing';
+        btn.classList.add('btn-accent');
+
+        // Copy active AOI polygon coordinates (excluding closing duplicate if present)
+        drawnAOIVertices = [...aoiPolygonCoords];
+        if (drawnAOIVertices.length > 3 &&
+            drawnAOIVertices[0][0] === drawnAOIVertices[drawnAOIVertices.length - 1][0] &&
+            drawnAOIVertices[0][1] === drawnAOIVertices[drawnAOIVertices.length - 1][1]) {
+            drawnAOIVertices.pop();
+        }
+
+        renderAOIHandles();
+        updateLiveGatewayPreview(drawnAOIVertices);
+    } else {
+        btn.innerText = '🖐️ Drag & Edit Handles';
+        btn.classList.remove('btn-accent');
+        aoiHandleLayerGroup.clearLayers();
+        previewGatewayLayerGroup.clearLayers();
+    }
+}
+
+function renderAOIHandles() {
+    aoiHandleLayerGroup.clearLayers();
+    if (!isEditingAOIMode || drawnAOIVertices.length < 3) return;
+
+    // 1. Polygon Outline Polyline
+    const closedCoords = [...drawnAOIVertices, drawnAOIVertices[0]];
+    const handlePolyline = L.polyline(closedCoords, {
+        color: '#38bdf8',
+        weight: 3,
+        dashArray: '6, 6'
+    });
+    aoiHandleLayerGroup.addLayer(handlePolyline);
+
+    // 2. Vertex Handles (Draggable)
+    drawnAOIVertices.forEach((v, idx) => {
+        const icon = L.divIcon({
+            className: 'aoi-vertex-handle',
+            iconSize: [14, 14]
+        });
+
+        const marker = L.marker([v[0], v[1]], {
+            icon: icon,
+            draggable: true
+        });
+
+        marker.bindTooltip(`Vertex #${idx + 1} (Right-click to remove)`, { sticky: true });
+
+        marker.on('drag', (e) => {
+            const newLat = e.latlng.lat;
+            const newLon = e.latlng.lng;
+            drawnAOIVertices[idx] = [newLat, newLon];
+
+            const updatedClosed = [...drawnAOIVertices, drawnAOIVertices[0]];
+            handlePolyline.setLatLngs(updatedClosed);
+            updateLiveGatewayPreview(drawnAOIVertices);
+        });
+
+        marker.on('dragend', () => {
+            renderAOIHandles();
+            saveEditedAOIPolygon();
+        });
+
+        marker.on('contextmenu', (e) => {
+            if (drawnAOIVertices.length <= 3) {
+                alert("Polygon must have at least 3 vertices.");
+                return;
+            }
+            drawnAOIVertices.splice(idx, 1);
+            renderAOIHandles();
+            updateLiveGatewayPreview(drawnAOIVertices);
+            saveEditedAOIPolygon();
+        });
+
+        aoiHandleLayerGroup.addLayer(marker);
+    });
+
+    // 3. Edge Midpoint Handles (Insert Node)
+    const n = drawnAOIVertices.length;
+    for (let i = 0; i < n; i++) {
+        const v1 = drawnAOIVertices[i];
+        const v2 = drawnAOIVertices[(i + 1) % n];
+
+        const midLat = (v1[0] + v2[0]) / 2;
+        const midLon = (v1[1] + v2[1]) / 2;
+
+        const midIcon = L.divIcon({
+            className: 'aoi-midpoint-handle',
+            iconSize: [10, 10]
+        });
+
+        const midMarker = L.marker([midLat, midLon], {
+            icon: midIcon,
+            draggable: true
+        });
+
+        midMarker.bindTooltip("Click or drag to insert new node", { sticky: true });
+
+        midMarker.on('dragstart click', (e) => {
+            const insertIdx = i + 1;
+            const newLat = e.latlng ? e.latlng.lat : midLat;
+            const newLon = e.latlng ? e.latlng.lng : midLon;
+            drawnAOIVertices.splice(insertIdx, 0, [newLat, newLon]);
+
+            renderAOIHandles();
+            updateLiveGatewayPreview(drawnAOIVertices);
+        });
+
+        midMarker.on('drag', (e) => {
+            const newLat = e.latlng.lat;
+            const newLon = e.latlng.lng;
+            const targetIdx = i + 1;
+            drawnAOIVertices[targetIdx] = [newLat, newLon];
+
+            const updatedClosed = [...drawnAOIVertices, drawnAOIVertices[0]];
+            handlePolyline.setLatLngs(updatedClosed);
+            updateLiveGatewayPreview(drawnAOIVertices);
+        });
+
+        midMarker.on('dragend', () => {
+            renderAOIHandles();
+            saveEditedAOIPolygon();
+        });
+
+        aoiHandleLayerGroup.addLayer(midMarker);
+    }
+}
+
+async function saveEditedAOIPolygon() {
+    if (drawnAOIVertices.length < 3) return;
+
+    const polygon = [...drawnAOIVertices, drawnAOIVertices[0]];
+    try {
+        const res = await fetch('/api/aoi', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ polygon: polygon })
+        });
+        const data = await res.json();
+        if (data.status === 'ok') {
+            aoiPolygonCoords = polygon;
+        }
+    } catch (err) {
+        console.error("Failed to save edited AOI polygon:", err);
+    }
+}
+
+// ------------------------------------------
+// Client-side Real-time Live Gateway Preview
+// ------------------------------------------
+
+function pointInPolygon(lat, lon, polygon) {
+    let x = lon, y = lat;
+    let inside = false;
+    for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+        let xi = polygon[i][1], yi = polygon[i][0];
+        let xj = polygon[j][1], yj = polygon[j][0];
+        let intersect = ((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+        if (intersect) inside = !inside;
+    }
+    return inside;
+}
+
+function segmentIntersection(lat1, lon1, lat2, lon2, lat3, lon3, lat4, lon4) {
+    const d = (lon2 - lon1) * (lat4 - lat3) - (lat2 - lat1) * (lon4 - lon3);
+    if (Math.abs(d) < 1e-9) return null;
+    const u = ((lat3 - lat1) * (lon4 - lon3) - (lon3 - lon1) * (lat4 - lat3)) / d;
+    const v = ((lat3 - lat1) * (lon2 - lon1) - (lon3 - lon1) * (lat2 - lat1)) / d;
+    if (u >= 0 && u <= 1 && v >= 0 && v <= 1) {
+        return [lat1 + u * (lat2 - lat1), lon1 + u * (lon2 - lon1)];
+    }
+    return null;
+}
+
+function updateLiveGatewayPreview(candidateVertices) {
+    previewGatewayLayerGroup.clearLayers();
+    if (!candidateVertices || candidateVertices.length < 3 || masterHighspeedEdges.length === 0) return;
+
+    const poly = [...candidateVertices, candidateVertices[0]];
+    const previewGateways = [];
+
+    // Test master highspeed edges (>30km/h) for border crossing
+    masterHighspeedEdges.forEach(edge => {
+        const uIn = pointInPolygon(edge.u_lat, edge.u_lon, poly);
+        const vIn = pointInPolygon(edge.v_lat, edge.v_lon, poly);
+
+        // Cross condition: one endpoint inside, one outside
+        if (uIn !== vIn) {
+            let intersectPt = null;
+
+            // Find segment intersection against candidate polygon ring
+            for (let i = 0; i < poly.length - 1; i++) {
+                const pt = segmentIntersection(
+                    edge.u_lat, edge.u_lon, edge.v_lat, edge.v_lon,
+                    poly[i][0], poly[i][1], poly[i + 1][0], poly[i + 1][1]
+                );
+                if (pt) {
+                    intersectPt = pt;
+                    break;
+                }
+            }
+
+            const crossLat = intersectPt ? intersectPt[0] : (uIn ? edge.v_lat : edge.u_lat);
+            const crossLon = intersectPt ? intersectPt[1] : (uIn ? edge.v_lon : edge.u_lon);
+
+            previewGateways.push({
+                lat: crossLat,
+                lon: crossLon,
+                name: edge.name,
+                maxspeed: edge.maxspeed,
+                highway: edge.highway
+            });
+        }
+    });
+
+    // Cluster preview markers within ~150m
+    const clustered = {};
+    previewGateways.forEach(gw => {
+        const key = `${gw.lat.toFixed(3)}_${gw.lon.toFixed(3)}`;
+        if (!clustered[key]) {
+            clustered[key] = gw;
+        }
+    });
+
+    // Render Preview Markers on Map
+    Object.values(clustered).forEach(gw => {
+        const previewIcon = L.divIcon({
+            className: 'gw-preview-icon',
+            html: `<div style="background-color:#f59e0b; border:2px solid #ffffff; width:14px; height:14px; border-radius:3px; transform:rotate(45deg); box-shadow:0 0 12px #f59e0b;"></div>`,
+            iconSize: [14, 14]
+        });
+
+        const marker = L.marker([gw.lat, gw.lon], { icon: previewIcon })
+            .bindTooltip(`🚪 <strong>PREVIEW GATEWAY</strong><br>${gw.name} (${gw.maxspeed} km/h)`, { sticky: true });
+
+        previewGatewayLayerGroup.addLayer(marker);
+    });
 }
 
 // Fetch Initial Road Network Geometry, POIs, Boundary Polygon, & Gateways
@@ -218,10 +515,13 @@ async function loadInitialData() {
         const response = await fetch('/api/initial-data');
         const data = await response.json();
 
+        aoiPolygonCoords = data.aoi_polygon || [];
+        masterHighspeedEdges = data.master_highspeed_edges || [];
+
         // 1. Draw AOI Boundary Ring Polygon (Cyan glowing polygon)
         boundaryLayerGroup.clearLayers();
-        if (data.aoi_polygon && data.aoi_polygon.length > 0) {
-            const boundaryPoly = L.polygon(data.aoi_polygon, {
+        if (aoiPolygonCoords.length > 0) {
+            const boundaryPoly = L.polygon(aoiPolygonCoords, {
                 color: '#38bdf8',
                 fillColor: '#38bdf8',
                 fillOpacity: 0.05,
@@ -233,7 +533,6 @@ async function loadInitialData() {
         }
 
         // 2. Draw Clipped Road Network Polylines
-        // Clear previous polylines
         Object.keys(edgePolylines).forEach(k => map.removeLayer(edgePolylines[k]));
         edgePolylines = {};
 
@@ -274,7 +573,11 @@ async function loadInitialData() {
         renderGatewayMarkers();
         renderGatewayManagerList();
 
-        console.log(`Loaded ${data.edges.length} active AOI edges, ${data.pois.length} POIs, ${gatewaysData.length} AOI gateways (>30km/h).`);
+        if (isEditingAOIMode) {
+            renderAOIHandles();
+        }
+
+        console.log(`Loaded ${data.edges.length} active AOI edges, ${masterHighspeedEdges.length} master highspeed edges, ${data.pois.length} POIs, ${gatewaysData.length} AOI gateways (>30km/h).`);
     } catch (err) {
         console.error("Failed to load initial map data:", err);
     }
@@ -415,7 +718,6 @@ function initWebSocket() {
 
 // Instant Effect Map Layer & Checkbox Controls
 function toggleLayerVisibility() {
-    // 1. AOI Boundary Layer
     const showAoi = document.getElementById('chk-show-aoi').checked;
     if (showAoi) {
         if (!map.hasLayer(boundaryLayerGroup)) map.addLayer(boundaryLayerGroup);
@@ -423,7 +725,6 @@ function toggleLayerVisibility() {
         if (map.hasLayer(boundaryLayerGroup)) map.removeLayer(boundaryLayerGroup);
     }
 
-    // 2. POI Layer
     const showPois = document.getElementById('chk-show-pois').checked;
     if (showPois) {
         if (!map.hasLayer(poiLayerGroup)) map.addLayer(poiLayerGroup);
@@ -431,7 +732,6 @@ function toggleLayerVisibility() {
         if (map.hasLayer(poiLayerGroup)) map.removeLayer(poiLayerGroup);
     }
 
-    // 3. Gateway Layer
     const showGateways = document.getElementById('chk-show-gateways').checked;
     if (showGateways) {
         if (!map.hasLayer(gatewayLayerGroup)) map.addLayer(gatewayLayerGroup);
@@ -439,7 +739,6 @@ function toggleLayerVisibility() {
         if (map.hasLayer(gatewayLayerGroup)) map.removeLayer(gatewayLayerGroup);
     }
 
-    // 4. Congestion Lines Reset if hidden
     const showCongestion = document.getElementById('chk-show-congestion').checked;
     if (!showCongestion) {
         Object.keys(edgePolylines).forEach(edgeId => {
@@ -508,7 +807,6 @@ function filterLegend(colorName) {
 
 // Render Simulation Frame
 function renderSimulationState(state) {
-    // 1. Header Metrics
     document.getElementById('val-active-count').innerText = state.active_vehicles_count;
     document.getElementById('val-completed-count').innerText = state.completed_trips_count;
     document.getElementById('val-avg-delay').innerText = state.avg_travel_time_sec.toFixed(1);
@@ -522,7 +820,6 @@ function renderSimulationState(state) {
     const showLogistics = document.getElementById('chk-veh-logistics').checked;
     const showBus = document.getElementById('chk-veh-bus').checked;
 
-    // 2. Render Vehicles
     const currentVehIds = new Set();
 
     state.vehicles.forEach(veh => {
@@ -560,7 +857,6 @@ function renderSimulationState(state) {
         }
     });
 
-    // Remove despawned vehicles
     Object.keys(vehicleMarkers).forEach(vehId => {
         if (!currentVehIds.has(vehId)) {
             if (map.hasLayer(vehicleMarkers[vehId])) map.removeLayer(vehicleMarkers[vehId]);
@@ -568,7 +864,6 @@ function renderSimulationState(state) {
         }
     });
 
-    // 3. Update Congestion Lines
     const showCongestion = document.getElementById('chk-show-congestion').checked;
     if (showCongestion && !activeLegendFilter) {
         Object.keys(edgePolylines).forEach(edgeId => {
@@ -600,7 +895,6 @@ function renderSimulationState(state) {
         }
     }
 
-    // 4. Update Chokepoint Leaderboard
     renderChokepointLeaderboard(state.top_chokepoints);
 }
 

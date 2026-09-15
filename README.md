@@ -8,8 +8,13 @@ An interactive, high-performance Python simulation software designed to model tr
 
 ## 🌟 Key Features
 
-* **Interactive Area of Interest (AOI) Polygon Drawer & Graph Clipping**:
+* **Interactive Drag-and-Drop AOI Polygon Drawer & Graph Clipping**:
   * Planners can draw custom **AOI Boundary Polygons** directly on the Leaflet map canvas using the **"✍️ Draw AOI"** tool.
+  * **Expanded Master Network**: Includes 11 core & outer ring municipalities (Lucerne, Ebikon, Emmen, Kriens, Horw, Meggen, Adligenswil, Dierikon, Buchrain, Malters, Rothenburg) with 4,204 nodes & 9,158 edges so drawn AOIs never hit "out of bounds".
+  * **"Undo Last Node" (`↩️ Undo Node`)**: Remove placed vertices during polygon creation.
+  * **Draggable Vertex Handles (`🖐️ Drag & Edit Handles`)**: Reshape polygon boundaries dynamically by dragging vertex handles or right-clicking to delete nodes.
+  * **Edge Midpoint Insertion**: Insert new polygon vertices by dragging out edge segment midpoints.
+  * **Real-Time Live Gateway Preview**: Client-side ray-casting calculates and renders glowing preview markers for $>30\text{ km/h}$ gateways live as polygon vertices are placed or dragged.
   * Traffic calculations and road network physics are clipped strictly inside the defined AOI polygon.
 
 * **Boundary Crossing Gateway Extraction ($> 30\text{ km/h}$ Rule)**:
