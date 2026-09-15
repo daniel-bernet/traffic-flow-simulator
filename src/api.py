@@ -111,13 +111,29 @@ async def get_initial_data():
         "pois": data_loader.pois,
         "gateways": data_loader.gateway_details,
         "aoi_polygon": data_loader.aoi_polygon_coords,
-        "bus_lines": engine.bus_transit_manager.get_transit_state()
+        "bus_lines": engine.bus_transit_manager.get_transit_state(),
+        "signals": engine.signal_manager.get_signals_state()
     }
 
 @app.get("/api/bus-lines")
 async def get_bus_lines():
     """Returns VBL Lucerne public bus lines, stop sequences, headways, and real-time lateness."""
     return engine.bus_transit_manager.get_transit_state()
+
+class SignalUpdatePayload(BaseModel):
+    green_split: float
+    cycle_time: Optional[float] = None
+
+@app.get("/api/signals")
+async def get_traffic_signals():
+    return engine.signal_manager.get_signals_state()
+
+@app.post("/api/signals/{signal_id}")
+async def update_traffic_signal(signal_id: str, payload: SignalUpdatePayload):
+    updated = engine.signal_manager.update_signal_split(signal_id, payload.green_split, payload.cycle_time)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Signal not found.")
+    return updated
 
 # Area of Interest (AOI) Endpoints
 class AOIPayload(BaseModel):

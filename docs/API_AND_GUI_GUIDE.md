@@ -39,6 +39,14 @@ This guide covers the REST endpoints, WebSocket streaming protocol, and user int
 
 ---
 
+### Traffic Signals & Transit Bus Endpoints
+
+* **`GET /api/signals`**: Returns list of all 10 signalized controllers across Lucerne with active phase and green split.
+* **`POST /api/signals/{id}`**: Updates green split ratio (0.15–0.85) and cycle length (30–120s) for intersection signal ID.
+* **`GET /api/bus-lines`**: Returns 5 VBL bus lines, stop sequences, target headways, and real-time schedule lateness.
+
+---
+
 ### Gateway Manager CRUD API
 
 * **`GET /api/gateways`**: Returns list of all active and custom regional gateway portals.

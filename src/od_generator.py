@@ -1,4 +1,5 @@
 import random
+import math
 import logging
 import networkx as nx
 from src.vehicle import TrafficClass, Vehicle
@@ -83,6 +84,28 @@ class ODGenerator:
             return random.choice(gateways)
         return random.choices(gateways, weights=weights, k=1)[0]
 
+    def _sample_gravity_destination(self, origin_id: str, candidate_nodes: list) -> str:
+        if not candidate_nodes or not origin_id or origin_id not in self.data_loader.nodes_dict:
+            return random.choice(candidate_nodes) if candidate_nodes else None
+        
+        orig_data = self.data_loader.nodes_dict[origin_id]
+        o_lat, o_lon = orig_data["lat"], orig_data["lon"]
+        
+        # Subsample up to 25 candidates for fast gravity sampling
+        sample_pool = random.sample(candidate_nodes, min(25, len(candidate_nodes)))
+        weights = []
+        for c_id in sample_pool:
+            if c_id not in self.data_loader.nodes_dict:
+                weights.append(1.0)
+                continue
+            c_data = self.data_loader.nodes_dict[c_id]
+            dist = math.hypot(c_data["lat"] - o_lat, c_data["lon"] - o_lon)
+            dest_w = c_data.get("weight_dest", 1.0)
+            gravity_w = dest_w / math.pow(dist + 0.005, 1.5)
+            weights.append(max(0.01, gravity_w))
+
+        return random.choices(sample_pool, weights=weights, k=1)[0]
+
     def _select_od_pair(self, flow_type: str, traffic_class: TrafficClass):
         nodes_dict = self.data_loader.nodes_dict
         res_nodes = self.data_loader.residential_nodes or list(nodes_dict.keys())
@@ -90,14 +113,14 @@ class ODGenerator:
         poi_nodes = [poi["node_id"] for poi in self.data_loader.pois if poi.get("node_id")]
 
         if flow_type == "inflow":
-            # Entry from Outside -> Inside
+            # Entry from Outside -> Inside (Gravity Model)
             origin = self._select_weighted_gateway()
             if traffic_class == TrafficClass.TOURISM and poi_nodes:
-                dest = random.choice(poi_nodes)
+                dest = self._sample_gravity_destination(origin, poi_nodes)
             elif traffic_class == TrafficClass.LOGISTICS:
-                dest = random.choice(comm_nodes)
+                dest = self._sample_gravity_destination(origin, comm_nodes)
             else:
-                dest = random.choice(comm_nodes if random.random() < 0.7 else res_nodes)
+                dest = self._sample_gravity_destination(origin, comm_nodes if random.random() < 0.7 else res_nodes)
         elif flow_type == "outflow":
             # Inside -> Outside Exit
             dest = self._select_weighted_gateway()
@@ -105,16 +128,16 @@ class ODGenerator:
         else: # internal_internal
             if traffic_class == TrafficClass.TOURISM and poi_nodes:
                 origin = random.choice(res_nodes)
-                dest = random.choice(poi_nodes)
+                dest = self._sample_gravity_destination(origin, poi_nodes)
             elif traffic_class == TrafficClass.LOGISTICS:
                 origin = self._select_weighted_gateway() or random.choice(comm_nodes)
-                dest = random.choice(comm_nodes)
+                dest = self._sample_gravity_destination(origin, comm_nodes)
             elif traffic_class == TrafficClass.BUS and poi_nodes:
                 origin = random.choice(poi_nodes)
                 dest = random.choice([p for p in poi_nodes if p != origin] or comm_nodes)
             else:
                 origin = random.choice(res_nodes)
-                dest = random.choice(comm_nodes if random.random() < 0.75 else poi_nodes)
+                dest = self._sample_gravity_destination(origin, comm_nodes if random.random() < 0.75 else poi_nodes)
 
         return origin, dest
 

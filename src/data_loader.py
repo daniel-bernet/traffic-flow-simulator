@@ -96,6 +96,9 @@ class LucerneDataLoader:
         for node, data in self.graph.nodes(data=True):
             lat = data.get("y", 0.0)
             lon = data.get("x", 0.0)
+            highway_tag = data.get("highway", "")
+            is_sig = (highway_tag == "traffic_signals") or ("traffic_signals" in str(data))
+
             self.nodes_dict[str(node)] = {
                 "id": str(node),
                 "lat": float(lat),
@@ -105,7 +108,8 @@ class LucerneDataLoader:
                 "is_gateway": False,
                 "gateway_weight": 1.0,
                 "gateway_name": "",
-                "is_poi": False
+                "is_poi": False,
+                "is_signalized": is_sig
             }
 
         self.all_edges_list = []

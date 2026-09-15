@@ -206,6 +206,10 @@
                 <span>🚪 Border Gateways (&gt; 30 km/h)</span>
             </label>
             <label class="checkbox-item">
+                <input type="checkbox" id="chk-show-signals" checked onchange="toggleLayerVisibility()">
+                <span>🚦 Traffic Light Signals (Live Phase)</span>
+            </label>
+            <label class="checkbox-item">
                 <input type="checkbox" id="chk-show-congestion" checked onchange="toggleLayerVisibility()">
                 <span>🔥 Traffic Congestion Lines</span>
             </label>
@@ -253,6 +257,18 @@
 
         <div id="gateway-manager-list" class="gateway-manager-container">
             <p class="empty-msg">Loading AOI gateways...</p>
+        </div>
+
+        <hr class="divider" />
+
+        <!-- Traffic Signals Tuning Section -->
+        <div class="sidebar-header flex-between">
+            <h2>🚦 Traffic Signal Tuner</h2>
+            <span class="badge-val" id="val-signals-count">10 Signals</span>
+        </div>
+
+        <div id="signals-manager-list" class="signals-manager-container">
+            <p class="empty-msg">Loading signal controllers...</p>
         </div>
 
         <hr class="divider" />

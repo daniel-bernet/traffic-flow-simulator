@@ -6,6 +6,7 @@ from collections import defaultdict
 from src.vehicle import TrafficClass, Vehicle
 from src.od_generator import ODGenerator
 from src.bus_transit import BusTransitManager
+from src.traffic_signals import TrafficSignalManager
 
 logger = logging.getLogger("SimulationEngine")
 
@@ -14,6 +15,7 @@ class TrafficSimulationEngine:
         self.data_loader = data_loader
         self.od_generator = ODGenerator(data_loader)
         self.bus_transit_manager = BusTransitManager(data_loader, self.od_generator)
+        self.signal_manager = TrafficSignalManager(data_loader)
         
         self.edges_dict = {edge["edge_id"]: edge for edge in data_loader.edges_list}
         self.active_vehicles = {}  # vehicle_id -> Vehicle
@@ -57,6 +59,7 @@ class TrafficSimulationEngine:
         self.edges_dict = {edge["edge_id"]: edge for edge in self.data_loader.edges_list}
         self.od_generator.reload_network_graph()
         self.bus_transit_manager.reload_network()
+        self.signal_manager.reload_network()
         self.reset()
         logger.info(f"Engine hot-reloaded AOI: {len(self.edges_dict)} active edges.")
 
@@ -107,6 +110,9 @@ class TrafficSimulationEngine:
         effective_dt = dt * self.params["sim_speed_multiplier"]
         self.sim_time += effective_dt
 
+        # 0. Advance Traffic Signal Controllers
+        self.signal_manager.tick(effective_dt)
+
         # 1. Update Edge Congestion & Speeds using BPR Formula
         self._update_edge_congestion()
 
@@ -124,6 +130,10 @@ class TrafficSimulationEngine:
 
             edge_dict = self.edges_dict.get(curr_edge_id)
             curr_speed = self.edge_stats[curr_edge_id]["current_speed"]
+            
+            # Decelerate / Hold at Red Traffic Light
+            if edge_dict and self.signal_manager.is_edge_red(curr_edge_id) and vehicle.distance_on_edge >= max(0.0, edge_dict["length"] - 15.0):
+                curr_speed = 0.5  # Held at red signal
             
             edge_finished = vehicle.update_position(edge_dict, dt=effective_dt, current_edge_speed=curr_speed)
             if edge_finished:
@@ -289,5 +299,6 @@ class TrafficSimulationEngine:
             "congested_edges": congested_edges,
             "blocked_edges": list(self.blocked_edges),
             "top_chokepoints": sorted_chokepoints,
-            "bus_lines": self.bus_transit_manager.get_transit_state()
+            "bus_lines": self.bus_transit_manager.get_transit_state(),
+            "signals": self.signal_manager.get_signals_state()
         }

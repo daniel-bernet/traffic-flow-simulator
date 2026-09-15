@@ -571,3 +571,70 @@ input[type="range"] {
     font-size: 11px;
     color: var(--text-muted);
 }
+
+/* Traffic Signal Tuner Container & Cards */
+.signals-manager-container {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.signal-card {
+    background: rgba(15, 23, 42, 0.5);
+    border: 1px solid var(--panel-border);
+    padding: 8px 10px;
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.signal-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.sig-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-main);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 170px;
+}
+
+.sig-phase-tag {
+    font-size: 10px;
+    font-weight: 700;
+    padding: 1px 6px;
+    border-radius: 4px;
+    color: #ffffff;
+}
+
+.sig-phase-tag.green {
+    background: rgba(16, 185, 129, 0.2);
+    color: var(--accent-emerald);
+    border: 1px solid rgba(16, 185, 129, 0.4);
+}
+
+.sig-phase-tag.red {
+    background: rgba(239, 68, 68, 0.2);
+    color: var(--accent-red);
+    border: 1px solid rgba(239, 68, 68, 0.4);
+}
+
+.signal-card-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+.signal-card-controls input[type="range"] {
+    flex: 1;
+}

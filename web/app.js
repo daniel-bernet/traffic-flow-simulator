@@ -9,10 +9,11 @@ let poiLayerGroup;
 let gatewayLayerGroup;
 let boundaryLayerGroup;
 let previewGatewayLayerGroup;
-let aoiHandleLayerGroup;
 let busLineLayerGroup;
+let signalLayerGroup;
 
 let gatewaysData = [];
+let signalsData = [];
 let masterHighspeedEdges = []; // All >30 km/h edges from master graph for live gateway preview
 let aoiPolygonCoords = []; // Current active AOI polygon ring
 let latestBusLinesData = [];
@@ -72,6 +73,7 @@ function initMap() {
     previewGatewayLayerGroup = L.layerGroup().addTo(map);
     aoiHandleLayerGroup = L.layerGroup().addTo(map);
     busLineLayerGroup = L.layerGroup().addTo(map);
+    signalLayerGroup = L.layerGroup().addTo(map);
 
     // Map Click Handler for Gateway placement or AOI Drawing
     map.on('click', async (e) => {
@@ -577,11 +579,16 @@ async function loadInitialData() {
         renderGatewayMarkers();
         renderGatewayManagerList();
 
+        // 5. Draw Traffic Signals
+        signalsData = data.signals || [];
+        renderSignalMarkers();
+        renderSignalsManagerList();
+
         if (isEditingAOIMode) {
             renderAOIHandles();
         }
 
-        console.log(`Loaded ${data.edges.length} active AOI edges, ${masterHighspeedEdges.length} master highspeed edges, ${data.pois.length} POIs, ${gatewaysData.length} AOI gateways (>30km/h).`);
+        console.log(`Loaded ${data.edges.length} active AOI edges, ${masterHighspeedEdges.length} master highspeed edges, ${data.pois.length} POIs, ${gatewaysData.length} AOI gateways (>30km/h), ${signalsData.length} traffic signals.`);
     } catch (err) {
         console.error("Failed to load initial map data:", err);
     }
@@ -698,6 +705,86 @@ async function deleteGateway(gwId) {
     }
 }
 
+// ------------------------------------------
+// Traffic Signal Controller Map & Tuner UI
+// ------------------------------------------
+
+function renderSignalMarkers() {
+    signalLayerGroup.clearLayers();
+    const showSignals = document.getElementById('chk-show-signals') ? document.getElementById('chk-show-signals').checked : true;
+    if (!showSignals) return;
+
+    signalsData.forEach(sig => {
+        const isGreen = sig.phase_a_green;
+        const color = isGreen ? '#10b981' : '#ef4444';
+        const label = isGreen ? 'PHASE A GREEN' : 'PHASE B GREEN';
+
+        const sigIcon = L.divIcon({
+            className: 'sig-marker-icon',
+            html: `<div style="background-color:${color}; border:2px solid #ffffff; width:12px; height:12px; border-radius:50%; box-shadow:0 0 10px ${color}; cursor:pointer;"></div>`,
+            iconSize: [12, 12]
+        });
+
+        const marker = L.marker([sig.lat, sig.lon], { icon: sigIcon })
+            .bindPopup(`
+                <div style="font-size:12px;">
+                    <strong>🚦 ${sig.name}</strong><br>
+                    Current Phase: <span style="color:${color}; font-weight:bold;">${label}</span><br>
+                    Cycle Duration: ${sig.cycle_time_sec}s<br>
+                    Green Phase A Split: <strong>${Math.round(sig.green_split * 100)}%</strong><br>
+                    <div style="margin-top:6px;">
+                        <input type="range" min="0.15" max="0.85" step="0.05" value="${sig.green_split}" onchange="updateSignalSplit('${sig.id}', this.value)">
+                    </div>
+                </div>
+            `);
+
+        signalLayerGroup.addLayer(marker);
+    });
+}
+
+function renderSignalsManagerList() {
+    const container = document.getElementById('signals-manager-list');
+    if (!container) return;
+
+    if (!signalsData || signalsData.length === 0) {
+        container.innerHTML = `<p class="empty-msg">No signalized intersections in active AOI.</p>`;
+        return;
+    }
+
+    const valBadge = document.getElementById('val-signals-count');
+    if (valBadge) valBadge.innerText = `${signalsData.length} Signals`;
+
+    container.innerHTML = signalsData.map(sig => `
+        <div class="signal-card">
+            <div class="signal-card-header">
+                <span class="sig-title" title="${sig.name}">${sig.name}</span>
+                <span class="sig-phase-tag ${sig.phase_a_green ? 'green' : 'red'}">${sig.phase_a_green ? 'A: GREEN' : 'B: GREEN'}</span>
+            </div>
+            <div class="signal-card-controls">
+                <span>Phase A Green:</span>
+                <input type="range" min="0.15" max="0.85" step="0.05" value="${sig.green_split}" onchange="updateSignalSplit('${sig.id}', this.value)">
+                <span>${Math.round(sig.green_split * 100)}%</span>
+            </div>
+        </div>
+    `).join('');
+}
+
+async function updateSignalSplit(signalId, newSplit) {
+    try {
+        await fetch(`/api/signals/${signalId}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ green_split: parseFloat(newSplit) })
+        });
+        const sig = signalsData.find(s => s.id === signalId);
+        if (sig) sig.green_split = parseFloat(newSplit);
+        renderSignalMarkers();
+        renderSignalsManagerList();
+    } catch (err) {
+        console.error("Failed to update traffic signal split:", err);
+    }
+}
+
 // WebSocket Live Stream Connection
 function initWebSocket() {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -741,6 +828,13 @@ function toggleLayerVisibility() {
         if (!map.hasLayer(gatewayLayerGroup)) map.addLayer(gatewayLayerGroup);
     } else {
         if (map.hasLayer(gatewayLayerGroup)) map.removeLayer(gatewayLayerGroup);
+    }
+
+    const showSignals = document.getElementById('chk-show-signals') ? document.getElementById('chk-show-signals').checked : true;
+    if (showSignals) {
+        if (!map.hasLayer(signalLayerGroup)) map.addLayer(signalLayerGroup);
+    } else {
+        if (map.hasLayer(signalLayerGroup)) map.removeLayer(signalLayerGroup);
     }
 
     const showCongestion = document.getElementById('chk-show-congestion').checked;
@@ -879,6 +973,12 @@ function renderSimulationState(state) {
     if (state.bus_lines) {
         latestBusLinesData = state.bus_lines;
         renderBusTransitDashboard(state.bus_lines);
+    }
+
+    if (state.signals) {
+        signalsData = state.signals;
+        renderSignalMarkers();
+        renderSignalsManagerList();
     }
 
     const mins = Math.floor(state.sim_time / 60);
