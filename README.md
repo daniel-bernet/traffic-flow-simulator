@@ -10,15 +10,18 @@ An interactive, high-performance Python simulation software designed to model tr
 
 * **Expanded Regional Road Network & GIS Topology**:
   * Captures **2,607 nodes** and **5,714 road edges** covering Lucerne, Ebikon, Emmen/Seetalplatz, and Kriens via **OSMnx** / OpenStreetMap.
-  * Extracted **159 Points of Interest (POIs)** including *Bahnhof Luzern*, *Kapellbrücke*, *KKL Luzern*, *Löwendenkmal*, *Luzerner Kantonsspital*, and major supermarket hubs.
+  * Extracted **159 Points of Interest (POIs)** including *Bahnhof Luzern*, *Kapellbrücke*, *KKL Luzern*, *Löwendenkmal*, *Luzerner Kantonsspital (LUKS)*, and major supermarket hubs.
 
-* **Arterial Gateway Hierarchy**:
-  * Identifies **199 regional gateway portals** weighted by road hierarchy capacity:
-    * **Gateway Nord-Ost (Maihof / Ebikon)** via Zürichstrasse corridor.
-    * **Gateway Nord (Seetalplatz / Emmen)** via Sedel & Seetalstrasse corridor.
-    * **Gateway Süd-West (Kriens / A2 Autobahn Süd)** via Luzernerstrasse & A2 portal.
-    * **Gateway Ost (Haldenstrasse / Meggen)** via Haldenstrasse corridor.
-    * **Gateway West (Bernstrasse / Littau / Malters)** via Hauptstrasse 10.
+* **Topological Convex Hull Gateway Extraction & Custom Gateway Manager**:
+  * Programmatically filters out minor residential and service dead-ends, retaining **high-capacity arterial portals**:
+    * **Gateway Maihof / Ebikon (Zürichstrasse - H2)**
+    * **Gateway Seetalplatz / Emmenbrücke (H26 / Sedel)**
+    * **Gateway A2 Süd (Luzern-Süd / Kriens / Schlund)**
+    * **Gateway A14 East (Ebikon / Buchrain)**
+    * **Gateway West (Bernstrasse / Littau / Malters - H10)**
+    * **Gateway Ost (Haldenstrasse / Meggen - H4)**
+    * **Gateway Horwerstrasse (Horw / Allmend)**
+  * **Interactive Gateway Manager UI**: View, edit capacity weights, enable/disable, or place custom portals directly on the Leaflet map canvas using the **"+ Add Gateway"** tool.
 
 * **3 Required Traffic Flow Categories**:
   1. **Internal ↔ Internal**: Resident commutes between residential neighborhoods, workplaces, and local POIs.
@@ -39,7 +42,8 @@ An interactive, high-performance Python simulation software designed to model tr
 
 * **Interactive Dark Glassmorphism Web GUI**:
   * Real-time WebGL/Leaflet particle movement streaming at ~20 FPS via WebSockets.
-  * **Map Display Filters & Checkboxes**: Show/hide POIs, Gateways, Congestion Lines, or filter map rendering to isolate specific vehicle classes (e.g., view **Freight Trucks ONLY**).
+  * **Instant Effect Layer & Vehicle Filters**: Checkboxes to toggle POIs, Gateways, Congestion Lines, or filter map rendering to isolate specific vehicle classes (e.g. view **Freight Trucks ONLY**).
+  * **Interactive Legend**: Click any legend row to highlight or isolate road segments matching that specific congestion level on screen.
   * **Interactive Road Closures**: Click any road segment on the map to block/unblock it and watch vehicles dynamically reroute in real time!
   * **Scenario Presets**: One-click configuration for *Morning Peak*, *Tourist Rush*, and *Freight Heavy* traffic.
 
@@ -74,24 +78,37 @@ An interactive, high-performance Python simulation software designed to model tr
 
 ---
 
+## 📚 Detailed Documentation (`docs/`)
+
+* 🚪 [**Gateway Specification**](docs/GATEWAY_SPECIFICATION.md): Topological convex hull extraction, arterial corridors, capacity weights, and custom manager API.
+* 🚘 [**Traffic Simulation Model**](docs/TRAFFIC_SIMULATION_MODEL.md): BPR congestion formulas, vehicle kinematics, and dynamic rerouting.
+* 💻 [**API & GUI User Guide**](docs/API_AND_GUI_GUIDE.md): REST endpoints, WebSocket JSON schema, and interface controls.
+
+---
+
 ## 📂 Code Architecture
 
 ```text
 traffic-flow-simulator/
 ├── .venv/                         # Python virtual environment
 ├── data/
+│   ├── gateways.json              # Custom gateway portal persistence file
 │   └── lucerne_data_cache.json    # Cached OSMnx graph, POIs & gateways
+├── docs/
+│   ├── GATEWAY_SPECIFICATION.md   # Gateway topology & portal specs
+│   ├── TRAFFIC_SIMULATION_MODEL.md# BPR delay model & vehicle physics
+│   └── API_AND_GUI_GUIDE.md       # API endpoints & dashboard guide
 ├── src/
 │   ├── __init__.py
-│   ├── data_loader.py             # OSMnx regional network query & gateway analyzer
+│   ├── data_loader.py             # Convex hull boundary cut & OSMnx parser
 │   ├── vehicle.py                 # Traffic class specifications & particle kinematics
 │   ├── od_generator.py            # Weighted Gravity model & NetworkX shortest path router
 │   ├── engine.py                  # Simulation tick engine with BPR congestion formula
-│   └── api.py                     # FastAPI server & WebSocket simulation streamer
+│   └── api.py                     # FastAPI server, Gateway CRUD endpoints & WebSocket streamer
 ├── web/
 │   ├── index.html                 # Dark glassmorphism frontend dashboard
 │   ├── style.css                  # UI styling & legend rules
-│   └── app.js                     # Leaflet map canvas, filter controls & WebSocket client
+│   └── app.js                     # Leaflet map canvas, Gateway Manager & WebSocket client
 ├── tests/
 │   └── test_simulation.py         # Unit test suite
 ├── .gitignore                     # Git ignore file

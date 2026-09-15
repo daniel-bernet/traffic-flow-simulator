@@ -6,13 +6,28 @@ import osmnx as ox
 import networkx as nx
 import pandas as pd
 import numpy as np
-from shapely.geometry import Point, Polygon, MultiPolygon
+from shapely.geometry import Point, MultiPoint
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("DataLoader")
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
 CACHE_FILE = os.path.join(DATA_DIR, "lucerne_data_cache.json")
+GATEWAYS_FILE = os.path.join(DATA_DIR, "gateways.json")
+
+ALLOWED_HIGHWAYS = {
+    'motorway', 'motorway_link', 
+    'trunk', 'trunk_link', 
+    'primary', 'primary_link', 
+    'secondary', 'secondary_link'
+}
+
+HIGHWAY_WEIGHTS = {
+    'motorway': 10.0, 'motorway_link': 8.0,
+    'trunk': 8.0, 'trunk_link': 7.0,
+    'primary': 6.0, 'primary_link': 5.0,
+    'secondary': 4.0, 'secondary_link': 3.0
+}
 
 class LucerneDataLoader:
     def __init__(self, place_name="Lucerne, Switzerland"):
@@ -36,8 +51,9 @@ class LucerneDataLoader:
                 with open(CACHE_FILE, "r", encoding="utf-8") as f:
                     data = json.load(f)
                     self._reconstruct_from_json(data)
+                    self._load_custom_gateways_override()
                     logger.info(f"Loaded {len(self.nodes_dict)} nodes, {len(self.edges_list)} edges, "
-                                f"{len(self.pois)} POIs, {len(self.gateway_nodes)} gateways from cache.")
+                                f"{len(self.pois)} POIs, {len(self.gateway_details)} gateways.")
                     return True
             except Exception as e:
                 logger.warning(f"Failed to load cache: {e}. Re-fetching from OpenStreetMap...")
@@ -54,7 +70,7 @@ class LucerneDataLoader:
         try:
             self.graph = ox.graph_from_place(places, network_type="drive", simplify=True)
         except Exception as e:
-            logger.warning(f"ox.graph_from_place multi-place failed: {e}. Falling back to Lucerne place query...")
+            logger.warning(f"ox.graph_from_place multi-place failed: {e}. Falling back to single query...")
             self.graph = ox.graph_from_place(self.place_name, network_type="drive", simplify=True)
 
         logger.info(f"Expanded network retrieved: {len(self.graph.nodes)} nodes, {len(self.graph.edges)} edges.")
@@ -66,7 +82,7 @@ class LucerneDataLoader:
 
         self._extract_network_structure()
         self._fetch_pois_and_landuse()
-        self._identify_gateways()
+        self._identify_gateways_convex_cut()
         self._save_cache()
         return True
 
@@ -182,7 +198,7 @@ class LucerneDataLoader:
                 elif "amenity" in row:
                     category = "Public Facility / Hospital"
 
-                nearest_node = self._find_nearest_node(lat, lon)
+                nearest_node = self.find_nearest_node(lat, lon)
                 if nearest_node:
                     self.pois.append({
                         "name": str(name),
@@ -217,108 +233,117 @@ class LucerneDataLoader:
             {"name": "Kapellbrücke (Chapel Bridge)", "category": "Historic Attraction", "lat": 47.0516, "lon": 8.3073},
             {"name": "Löwendenkmal (Lion Monument)", "category": "Historic Attraction", "lat": 47.0583, "lon": 8.3107},
             {"name": "KKL Luzern (Culture & Congress)", "category": "Tourism / Hotel", "lat": 47.0500, "lon": 8.3120},
-            {"name": "Luzerner Kantonsspital", "category": "Public Facility / Hospital", "lat": 47.0580, "lon": 8.3005},
+            {"name": "Luzerner Kantonsspital (LUKS)", "category": "Public Facility / Hospital", "lat": 47.0580, "lon": 8.3005},
             {"name": "Emmen Center / Shopping Mall", "category": "Supermarket/Shopping", "lat": 47.0710, "lon": 8.2890},
             {"name": "Verkehrshaus der Schweiz", "category": "Tourism / Hotel", "lat": 47.0531, "lon": 8.3356}
         ]
         for item in fallback_landmarks:
-            nearest = self._find_nearest_node(item["lat"], item["lon"])
+            nearest = self.find_nearest_node(item["lat"], item["lon"])
             if nearest:
                 item["node_id"] = nearest
                 self.pois.append(item)
                 self.nodes_dict[nearest]["is_poi"] = True
                 self.nodes_dict[nearest]["weight_dest"] += 15.0
 
-    def _identify_gateways(self):
+    def _identify_gateways_convex_cut(self):
         """
-        Identify high-capacity gateway portals at the spatial boundary of the road network,
-        weighted by road hierarchy (Motorway > Primary Hauptstrasse > Secondary > Local).
-        Specifically includes corridors like Maihof/Ebikon, Seetalplatz/Emmen, A2 Autobahn, Horw, Meggen.
+        Convex Hull + Functional Class Filter for Gateway Portals.
+        Filters out all residential, service, and minor dead-ends.
+        Identifies official regional corridors (A2, A14, Maihof, Seetalplatz, Bernstrasse, Haldenstrasse, Horwerstrasse).
         """
-        lats = [n["lat"] for n in self.nodes_dict.values()]
-        lons = [n["lon"] for n in self.nodes_dict.values()]
-        min_lat, max_lat = min(lats), max(lats)
-        min_lon, max_lon = min(lons), max(lons)
+        logger.info("Computing topological convex hull boundary cut for high-capacity gateways...")
         
-        lat_span = max_lat - min_lat
-        lon_span = max_lon - min_lon
-        
-        # Perimeter buffer zone: 10% from outer boundaries
-        thresh_lat = 0.10 * lat_span
-        thresh_lon = 0.10 * lon_span
+        points = MultiPoint([Point(n["lon"], n["lat"]) for n in self.nodes_dict.values()])
+        convex_hull = points.convex_hull
+        boundary_line = convex_hull.exterior
 
-        # Map connecting road types for each node
-        node_highways = {}
+        candidate_gateways = []
         for edge in self.edges_list:
-            u, v = edge["u"], edge["v"]
-            h_type = edge["highway"]
-            for n_id in [u, v]:
-                if n_id not in node_highways:
-                    node_highways[n_id] = set()
-                node_highways[n_id].add(h_type)
+            highway = edge["highway"]
+            if highway not in ALLOWED_HIGHWAYS:
+                continue  # Skip residential, footway, service, tertiary
 
-        self.gateway_nodes = []
-        self.gateway_details = []
+            u_node = self.nodes_dict[edge["u"]]
+            v_node = self.nodes_dict[edge["v"]]
 
-        for n_id, n in self.nodes_dict.items():
-            is_perimeter = (n["lat"] <= min_lat + thresh_lat or n["lat"] >= max_lat - thresh_lat or
-                            n["lon"] <= min_lon + thresh_lon or n["lon"] >= max_lon - thresh_lon)
-            
-            if not is_perimeter:
-                continue
+            dist_u = boundary_line.distance(Point(u_node["lon"], u_node["lat"]))
+            dist_v = boundary_line.distance(Point(v_node["lon"], v_node["lat"]))
 
-            hw_types = node_highways.get(n_id, set())
-            
-            # Determine gateway weight and corridor name based on road type & geographic direction
-            weight = 1.0
-            portal_name = "Local Gateway Portal"
+            target_node = None
+            if dist_u < 0.015:  # ~1.5km from outer regional boundary
+                target_node = u_node
+            elif dist_v < 0.015:
+                target_node = v_node
 
-            if any(h in hw_types for h in ["motorway", "motorway_link", "trunk", "trunk_link"]):
-                weight = 10.0
-                portal_name = "Highway Portal (A2 / A14)"
-            elif any(h in hw_types for h in ["primary", "primary_link"]):
-                weight = 6.0
-                portal_name = "Hauptstrasse Corridor"
-            elif any(h in hw_types for h in ["secondary", "secondary_link"]):
-                weight = 3.0
-                portal_name = "Regional Arterial"
-            else:
-                weight = 1.0  # Minor street
+            if target_node:
+                candidate_gateways.append({
+                    "node_id": target_node["id"],
+                    "lat": target_node["lat"],
+                    "lon": target_node["lon"],
+                    "highway": highway,
+                    "road_name": edge["name"]
+                })
 
-            # Named corridor identification based on coordinates
-            lat, lon = n["lat"], n["lon"]
-            if lat >= max_lat - thresh_lat and lon >= 8.310:
-                portal_name = "Gateway Maihof / Ebikon (Zürichstrasse)"
-                weight = max(weight, 7.0)
-            elif lat >= max_lat - thresh_lat and lon < 8.300:
-                portal_name = "Gateway Seetalplatz / Emmen"
-                weight = max(weight, 8.0)
-            elif lon <= min_lon + thresh_lon:
-                portal_name = "Gateway West (Littau / Malters / Bernstrasse)"
-                weight = max(weight, 6.0)
-            elif lat <= min_lat + thresh_lat and lon <= 8.310:
-                portal_name = "Gateway Süd (Kriens / Horw / A2 Süd)"
-                weight = max(weight, 8.0)
-            elif lon >= max_lon - thresh_lon:
-                portal_name = "Gateway Ost (Haldenstrasse / Meggen)"
-                weight = max(weight, 6.0)
+        # Cluster candidate gateways by spatial proximity (~300m threshold)
+        clustered_dict = {}
+        for cand in candidate_gateways:
+            lat, lon = cand["lat"], cand["lon"]
+            h_type = cand["highway"]
+            base_w = HIGHWAY_WEIGHTS.get(h_type, 3.0)
 
-            n["is_gateway"] = True
-            n["gateway_weight"] = weight
-            n["gateway_name"] = portal_name
-            
-            self.gateway_nodes.append(n_id)
-            self.gateway_details.append({
-                "id": n_id,
-                "name": portal_name,
-                "weight": weight,
-                "lat": lat,
-                "lon": lon
-            })
+            # Corridor name resolution
+            name = self._resolve_corridor_name(lat, lon, h_type, cand["road_name"])
 
-        logger.info(f"Identified {len(self.gateway_nodes)} hierarchical gateway portals.")
+            key = f"{round(lat, 3)}_{round(lon, 3)}"
+            if key not in clustered_dict or base_w > clustered_dict[key]["weight"]:
+                clustered_dict[key] = {
+                    "id": f"gw_{cand['node_id']}",
+                    "node_id": cand["node_id"],
+                    "name": name,
+                    "corridor_type": h_type,
+                    "lat": lat,
+                    "lon": lon,
+                    "weight": base_w,
+                    "direction": "both",
+                    "capacity_veh_per_hr": int(base_w * 400),
+                    "enabled": True,
+                    "is_custom": False
+                }
 
-    def _find_nearest_node(self, lat, lon):
+        self.gateway_details = list(clustered_dict.values())
+        self.gateway_nodes = [g["node_id"] for g in self.gateway_details if g["enabled"]]
+
+        for g in self.gateway_details:
+            n_id = g["node_id"]
+            if n_id in self.nodes_dict:
+                self.nodes_dict[n_id]["is_gateway"] = True
+                self.nodes_dict[n_id]["gateway_weight"] = g["weight"]
+                self.nodes_dict[n_id]["gateway_name"] = g["name"]
+
+        logger.info(f"Identified {len(self.gateway_details)} high-capacity arterial gateways.")
+        self.save_gateways_to_json()
+
+    def _resolve_corridor_name(self, lat, lon, highway, road_name):
+        """Map portal lat/lon to official regional corridor names."""
+        if lat >= 47.065 and lon >= 8.315:
+            return "Gateway Maihof / Ebikon (Zürichstrasse - H2)"
+        elif lat >= 47.065 and lon < 8.300:
+            return "Gateway Seetalplatz / Emmenbrücke (H26 / Sedel)"
+        elif lat <= 47.025 and lon <= 8.305:
+            return "Gateway A2 Süd (Luzern-Süd / Kriens / Schlund)"
+        elif lat <= 47.030 and lon > 8.305:
+            return "Gateway Horwerstrasse (Horw / Allmend)"
+        elif lon <= 8.260:
+            return "Gateway West (Bernstrasse / Littau / Malters - H10)"
+        elif lon >= 8.345:
+            return "Gateway Ost (Haldenstrasse / Meggen - H4)"
+        elif "motorway" in highway:
+            return f"Autobahn Portal ({road_name})"
+        elif "primary" in highway:
+            return f"Hauptstrasse Corridor ({road_name})"
+        return f"Regional Arterial ({road_name})"
+
+    def find_nearest_node(self, lat, lon):
         best_node = None
         min_dist = float("inf")
         for n_id, data in self.nodes_dict.items():
@@ -327,6 +352,28 @@ class LucerneDataLoader:
                 min_dist = dist
                 best_node = n_id
         return best_node
+
+    def save_gateways_to_json(self):
+        """Persist gateways to data/gateways.json."""
+        data = {
+            "version": "1.0",
+            "gateways": self.gateway_details
+        }
+        with open(GATEWAYS_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+        logger.info(f"Saved {len(self.gateway_details)} gateways to '{GATEWAYS_FILE}'.")
+
+    def _load_custom_gateways_override(self):
+        """Load gateways from data/gateways.json if exists."""
+        if os.path.exists(GATEWAYS_FILE):
+            try:
+                with open(GATEWAYS_FILE, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    if "gateways" in data and len(data["gateways"]) > 0:
+                        self.gateway_details = data["gateways"]
+                        self.gateway_nodes = [g["node_id"] for g in self.gateway_details if g.get("enabled", True)]
+            except Exception as e:
+                logger.warning(f"Failed to load custom gateways file: {e}")
 
     def _save_cache(self):
         data = {

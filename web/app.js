@@ -3,9 +3,12 @@
 let map;
 let edgePolylines = {};  // edge_id -> L.polyline
 let vehicleMarkers = {}; // vehicle_id -> L.circleMarker
+let gatewayMarkers = {}; // gateway_id -> L.marker
 let poiLayerGroup;
 let gatewayLayerGroup;
 
+let gatewaysData = [];
+let isAddingGatewayMode = false;
 let socket;
 let simParameters = {
     spawn_rate: 2.0,
@@ -18,6 +21,9 @@ let simParameters = {
     class_logistics_pct: 10,
     class_bus_pct: 10
 };
+
+// Active legend filter
+let activeLegendFilter = null;
 
 // Initialize Application
 document.addEventListener("DOMContentLoaded", () => {
@@ -45,6 +51,53 @@ function initMap() {
 
     poiLayerGroup = L.layerGroup().addTo(map);
     gatewayLayerGroup = L.layerGroup().addTo(map);
+
+    // Map Click Listener for "+ Add Gateway" Tool
+    map.on('click', async (e) => {
+        if (!isAddingGatewayMode) return;
+
+        const lat = e.latlng.lat;
+        const lon = e.latlng.lng;
+        const name = prompt("Enter Custom Gateway Portal Name:", "Custom Regional Gateway");
+        if (!name) {
+            cancelAddGateway();
+            return;
+        }
+
+        try {
+            const res = await fetch('/api/gateways', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name: name,
+                    lat: lat,
+                    lon: lon,
+                    weight: 5.0,
+                    corridor_type: "secondary"
+                })
+            });
+            const newGw = await res.json();
+            gatewaysData.push(newGw);
+            renderGatewayMarkers();
+            renderGatewayManagerList();
+        } catch (err) {
+            console.error("Failed to add custom gateway:", err);
+        }
+
+        cancelAddGateway();
+    });
+}
+
+function enableAddGatewayTool() {
+    isAddingGatewayMode = true;
+    document.getElementById('add-gateway-banner').classList.remove('hidden');
+    map.getContainer().style.cursor = 'crosshair';
+}
+
+function cancelAddGateway() {
+    isAddingGatewayMode = false;
+    document.getElementById('add-gateway-banner').classList.add('hidden');
+    map.getContainer().style.cursor = '';
 }
 
 // Fetch Initial Road Network Geometry & POIs from Backend
@@ -59,14 +112,13 @@ async function loadInitialData() {
 
             const latlngs = edge.geometry.map(coord => [coord[0], coord[1]]);
             const polyline = L.polyline(latlngs, {
-                color: '#334155', // Default dark slate road line
+                color: '#334155',
                 weight: Math.max(2, edge.lanes * 1.5),
                 opacity: 0.65
             }).addTo(map);
 
             polyline.bindTooltip(`<strong>${edge.name}</strong><br>Speed Limit: ${edge.maxspeed} km/h`, { sticky: true });
 
-            // Click to toggle bottleneck closure
             polyline.on('click', () => {
                 toggleRoadBlock(edge.id);
             });
@@ -74,7 +126,7 @@ async function loadInitialData() {
             edgePolylines[edge.id] = polyline;
         });
 
-        // 2. Draw Landmark POIs
+        // 2. Draw POIs
         data.pois.forEach(poi => {
             const poiIcon = L.divIcon({
                 className: 'poi-marker-icon',
@@ -86,25 +138,112 @@ async function loadInitialData() {
             poiLayerGroup.addLayer(marker);
         });
 
-        // 3. Draw Gateways with named corridor tooltip
-        data.gateways.forEach(gw => {
-            const isHighCap = gw.weight >= 6.0;
-            const color = isHighCap ? '#a855f7' : '#e2e8f0';
-            const size = isHighCap ? 14 : 10;
+        // 3. Draw Gateways
+        gatewaysData = data.gateways || [];
+        renderGatewayMarkers();
+        renderGatewayManagerList();
 
-            const gwIcon = L.divIcon({
-                className: 'gw-marker-icon',
-                html: `<div style="background-color:${color}; width:${size}px; height:${size}px; transform:rotate(45deg); box-shadow:0 0 8px ${color};"></div>`,
-                iconSize: [size, size]
-            });
-            const marker = L.marker([gw.lat, gw.lon], { icon: gwIcon })
-                .bindTooltip(`<strong>🚪 ${gw.name}</strong><br>Capacity Weight: ${gw.weight}x`);
-            gatewayLayerGroup.addLayer(marker);
-        });
-
-        console.log(`Loaded ${data.edges.length} edges, ${data.pois.length} POIs, ${data.gateways.length} gateways.`);
+        console.log(`Loaded ${data.edges.length} edges, ${data.pois.length} POIs, ${gatewaysData.length} gateways.`);
     } catch (err) {
         console.error("Failed to load initial map data:", err);
+    }
+}
+
+// Render Gateway Map Markers
+function renderGatewayMarkers() {
+    gatewayLayerGroup.clearLayers();
+    gatewayMarkers = {};
+
+    gatewaysData.forEach(gw => {
+        if (!gw.enabled) return;
+
+        const isHighCap = gw.weight >= 6.0;
+        const color = gw.is_custom ? '#10b981' : (isHighCap ? '#a855f7' : '#f59e0b');
+        const size = isHighCap ? 14 : 10;
+
+        const gwIcon = L.divIcon({
+            className: 'gw-marker-icon',
+            html: `<div style="background-color:${color}; width:${size}px; height:${size}px; transform:rotate(45deg); box-shadow:0 0 10px ${color}; cursor:pointer;"></div>`,
+            iconSize: [size, size]
+        });
+
+        const marker = L.marker([gw.lat, gw.lon], { icon: gwIcon })
+            .bindPopup(`
+                <div style="font-size:12px;">
+                    <strong>🚪 ${gw.name}</strong><br>
+                    Capacity Weight: <strong>${gw.weight}x</strong><br>
+                    Type: ${gw.corridor_type}<br>
+                    <button style="margin-top:6px; padding:2px 6px; font-size:10px; cursor:pointer;" onclick="deleteGateway('${gw.id}')">Delete Gateway</button>
+                </div>
+            `);
+
+        gatewayLayerGroup.addLayer(marker);
+        gatewayMarkers[gw.id] = marker;
+    });
+}
+
+// Render Gateway Manager List in Sidebar
+function renderGatewayManagerList() {
+    const container = document.getElementById('gateway-manager-list');
+    if (!gatewaysData || gatewaysData.length === 0) {
+        container.innerHTML = `<p class="empty-msg">No active gateways.</p>`;
+        return;
+    }
+
+    container.innerHTML = gatewaysData.map(gw => `
+        <div class="gateway-card">
+            <div class="gateway-card-header">
+                <span class="gw-title" title="${gw.name}">${gw.name}</span>
+                <span class="gw-weight-tag">${gw.weight.toFixed(1)}x</span>
+            </div>
+            <div class="gateway-card-controls">
+                <input type="range" min="1.0" max="15.0" step="0.5" value="${gw.weight}" onchange="updateGatewayWeight('${gw.id}', this.value)">
+                <input type="checkbox" ${gw.enabled ? 'checked' : ''} onchange="toggleGatewayEnabled('${gw.id}', this.checked)">
+            </div>
+        </div>
+    `).join('');
+}
+
+async function updateGatewayWeight(gwId, newWeight) {
+    try {
+        await fetch(`/api/gateways/${gwId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ weight: parseFloat(newWeight) })
+        });
+        const gw = gatewaysData.find(g => g.id === gwId);
+        if (gw) gw.weight = parseFloat(newWeight);
+        renderGatewayMarkers();
+        renderGatewayManagerList();
+    } catch (err) {
+        console.error("Failed to update gateway weight:", err);
+    }
+}
+
+async function toggleGatewayEnabled(gwId, enabled) {
+    try {
+        await fetch(`/api/gateways/${gwId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ enabled: enabled })
+        });
+        const gw = gatewaysData.find(g => g.id === gwId);
+        if (gw) gw.enabled = enabled;
+        renderGatewayMarkers();
+        renderGatewayManagerList();
+    } catch (err) {
+        console.error("Failed to toggle gateway enabled:", err);
+    }
+}
+
+async function deleteGateway(gwId) {
+    try {
+        await fetch(`/api/gateways/${gwId}`, { method: 'DELETE' });
+        gatewaysData = gatewaysData.filter(g => g.id !== gwId);
+        renderGatewayMarkers();
+        renderGatewayManagerList();
+    } catch (err) {
+        console.error("Failed to delete gateway:", err);
     }
 }
 
@@ -130,7 +269,7 @@ function initWebSocket() {
     };
 }
 
-// Layer & Vehicle Visibility Checkbox Toggles
+// Instant Effect Map Layer & Checkbox Controls
 function toggleLayerVisibility() {
     // 1. POI Layer
     const showPois = document.getElementById('chk-show-pois').checked;
@@ -155,6 +294,65 @@ function toggleLayerVisibility() {
             edgePolylines[edgeId].setStyle({ color: '#334155', weight: 2 });
         });
     }
+
+    // Instantly filter visible vehicle markers on map
+    filterVehicleMarkersInstant();
+}
+
+function filterVehicleMarkersInstant() {
+    const showPersonal = document.getElementById('chk-veh-personal').checked;
+    const showTourism = document.getElementById('chk-veh-tourism').checked;
+    const showLogistics = document.getElementById('chk-veh-logistics').checked;
+    const showBus = document.getElementById('chk-veh-bus').checked;
+
+    Object.keys(vehicleMarkers).forEach(vehId => {
+        const marker = vehicleMarkers[vehId];
+        const vClass = marker.vehicleClass;
+        
+        let visible = false;
+        if (vClass === 'personal' && showPersonal) visible = true;
+        else if (vClass === 'tourism' && showTourism) visible = true;
+        else if (vClass === 'logistics' && showLogistics) visible = true;
+        else if (vClass === 'bus' && showBus) visible = true;
+
+        if (visible) {
+            if (!map.hasLayer(marker)) map.addLayer(marker);
+        } else {
+            if (map.hasLayer(marker)) map.removeLayer(marker);
+        }
+    });
+}
+
+// Interactive Legend Filtering
+function filterLegend(colorName) {
+    if (activeLegendFilter === colorName) {
+        activeLegendFilter = null; // Toggle off
+    } else {
+        activeLegendFilter = colorName;
+    }
+
+    const colorHexMap = {
+        'green': '#2ecc71',
+        'yellow': '#f1c40f',
+        'orange': '#e67e22',
+        'red': '#e74c3c',
+        'purple': '#8e44ad'
+    };
+
+    const targetHex = colorHexMap[activeLegendFilter];
+
+    Object.keys(edgePolylines).forEach(edgeId => {
+        const line = edgePolylines[edgeId];
+        if (!activeLegendFilter) {
+            line.setStyle({ opacity: 0.65 });
+        } else {
+            if (line.options.color === targetHex) {
+                line.setStyle({ opacity: 1.0, weight: 5 });
+            } else {
+                line.setStyle({ opacity: 0.15 });
+            }
+        }
+    });
 }
 
 // Render Simulation Frame
@@ -168,29 +366,30 @@ function renderSimulationState(state) {
     const secs = Math.floor(state.sim_time % 60);
     document.getElementById('val-sim-time').innerText = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
 
-    // Read active vehicle class checkboxes
     const showPersonal = document.getElementById('chk-veh-personal').checked;
     const showTourism = document.getElementById('chk-veh-tourism').checked;
     const showLogistics = document.getElementById('chk-veh-logistics').checked;
     const showBus = document.getElementById('chk-veh-bus').checked;
 
-    // 2. Filter & Render Vehicles
+    // 2. Render Vehicles
     const currentVehIds = new Set();
 
     state.vehicles.forEach(veh => {
-        // Filter by class checkbox
+        currentVehIds.add(veh.id);
+
         let isVisible = false;
         if (veh.class === 'personal' && showPersonal) isVisible = true;
         else if (veh.class === 'tourism' && showTourism) isVisible = true;
         else if (veh.class === 'logistics' && showLogistics) isVisible = true;
         else if (veh.class === 'bus' && showBus) isVisible = true;
 
-        if (!isVisible) return;
-
-        currentVehIds.add(veh.id);
-
         if (vehicleMarkers[veh.id]) {
             vehicleMarkers[veh.id].setLatLng([veh.lat, veh.lon]);
+            if (isVisible && !map.hasLayer(vehicleMarkers[veh.id])) {
+                map.addLayer(vehicleMarkers[veh.id]);
+            } else if (!isVisible && map.hasLayer(vehicleMarkers[veh.id])) {
+                map.removeLayer(vehicleMarkers[veh.id]);
+            }
         } else {
             const marker = L.circleMarker([veh.lat, veh.lon], {
                 radius: veh.class === 'logistics' || veh.class === 'bus' ? 5 : 4,
@@ -198,24 +397,29 @@ function renderSimulationState(state) {
                 color: '#ffffff',
                 weight: 1,
                 fillOpacity: 0.9
-            }).addTo(map);
+            });
 
+            marker.vehicleClass = veh.class;
             marker.bindTooltip(`Vehicle ${veh.id} [${veh.class.toUpperCase()}]`);
+            
+            if (isVisible) {
+                marker.addTo(map);
+            }
             vehicleMarkers[veh.id] = marker;
         }
     });
 
-    // Remove despawned or hidden vehicle markers
+    // Remove despawned vehicles
     Object.keys(vehicleMarkers).forEach(vehId => {
         if (!currentVehIds.has(vehId)) {
-            map.removeLayer(vehicleMarkers[vehId]);
+            if (map.hasLayer(vehicleMarkers[vehId])) map.removeLayer(vehicleMarkers[vehId]);
             delete vehicleMarkers[vehId];
         }
     });
 
-    // 3. Update Congestion Edge Colors (if enabled)
+    // 3. Update Congestion Lines
     const showCongestion = document.getElementById('chk-show-congestion').checked;
-    if (showCongestion) {
+    if (showCongestion && !activeLegendFilter) {
         Object.keys(edgePolylines).forEach(edgeId => {
             edgePolylines[edgeId].setStyle({ color: '#334155', weight: 2 });
         });

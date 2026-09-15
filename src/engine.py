@@ -50,6 +50,9 @@ class TrafficSimulationEngine:
                 "color": "#2ecc71" # Green
             }
 
+    def reload_gateways(self, gateway_details):
+        self.od_generator.reload_gateways(gateway_details)
+
     def set_parameters(self, new_params: dict):
         """Update simulation parameters on the fly."""
         for key, val in new_params.items():

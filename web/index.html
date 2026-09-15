@@ -17,13 +17,19 @@
     <!-- Fullscreen Map Canvas -->
     <div id="map"></div>
 
+    <!-- Map Canvas Add Gateway Banner -->
+    <div id="add-gateway-banner" class="banner-glass hidden">
+        <span>📍 Click anywhere on the map to place a Custom Gateway Portal</span>
+        <button class="btn btn-sm" onclick="cancelAddGateway()">Cancel</button>
+    </div>
+
     <!-- Glassmorphic Header / Control Bar -->
     <header class="top-bar glass-panel">
         <div class="brand">
             <span class="flag">🇨🇭</span>
             <div>
                 <h1>Lucerne Traffic Flow Simulator</h1>
-                <p>City-wide Regional Portals & Flow Analysis Engine</p>
+                <p>Regional Portal Management & Bottleneck Analysis Engine</p>
             </div>
         </div>
 
@@ -133,7 +139,7 @@
         </div>
     </aside>
 
-    <!-- Right Sidebar: Display Filter Checkboxes & Chokepoint Leaderboard -->
+    <!-- Right Sidebar: Display Checkboxes, Gateway Manager, & Legend -->
     <aside class="sidebar right-sidebar glass-panel">
         
         <!-- Display / Filter Checkboxes Section -->
@@ -179,6 +185,18 @@
 
         <hr class="divider" />
 
+        <!-- Gateway Manager Section -->
+        <div class="sidebar-header flex-between">
+            <h2>Gateway Manager</h2>
+            <button class="btn btn-sm btn-accent" onclick="enableAddGatewayTool()">+ Add Gateway</button>
+        </div>
+
+        <div id="gateway-manager-list" class="gateway-manager-container">
+            <p class="empty-msg">Loading active arterial portals...</p>
+        </div>
+
+        <hr class="divider" />
+
         <div class="sidebar-header">
             <h2>Chokepoint Leaderboard</h2>
         </div>
@@ -190,34 +208,34 @@
         <hr class="divider" />
 
         <div class="sidebar-header">
-            <h2>Legend & Map Controls</h2>
+            <h2>Interactive Legend</h2>
         </div>
 
         <div class="legend-box">
-            <div class="legend-row">
+            <div class="legend-row clickable" onclick="filterLegend('green')">
                 <span class="color-dot green"></span>
                 <span>Free Flow (V/C &lt; 0.5)</span>
             </div>
-            <div class="legend-row">
+            <div class="legend-row clickable" onclick="filterLegend('yellow')">
                 <span class="color-dot yellow"></span>
                 <span>Moderate Traffic (0.5 – 0.8)</span>
             </div>
-            <div class="legend-row">
+            <div class="legend-row clickable" onclick="filterLegend('orange')">
                 <span class="color-dot orange"></span>
                 <span>Heavy Traffic (0.8 – 1.0)</span>
             </div>
-            <div class="legend-row">
+            <div class="legend-row clickable" onclick="filterLegend('red')">
                 <span class="color-dot red"></span>
                 <span>Congested Chokepoint (&gt; 1.0)</span>
             </div>
-            <div class="legend-row">
+            <div class="legend-row clickable" onclick="filterLegend('purple')">
                 <span class="color-dot purple"></span>
                 <span>Blocked Road Segment</span>
             </div>
         </div>
 
         <div class="hint-box">
-            <p>💡 <strong>Tip:</strong> Uncheck vehicle classes to isolate specific traffic flows (e.g. view only Freight Trucks)! Click any road segment to simulate a temporary road closure.</p>
+            <p>💡 <strong>Tip:</strong> Click <strong>+ Add Gateway</strong> to drop a custom portal anywhere on the map! Uncheck vehicle classes to isolate specific traffic flows.</p>
         </div>
     </aside>
 

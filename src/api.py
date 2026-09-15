@@ -2,12 +2,13 @@ import os
 import asyncio
 import logging
 import json
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from typing import Optional, Literal, List
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
-from src.data_loader import LucerneDataLoader
+from src.data_loader import LucerneDataLoader, GATEWAYS_FILE
 from src.engine import TrafficSimulationEngine
 
 logging.basicConfig(level=logging.INFO)
@@ -52,14 +53,13 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 
-# Background Simulation Loop Task
 simulation_running = True
 
 async def simulation_loop():
     logger.info("Starting background simulation tick loop...")
     while simulation_running:
         if manager.active_connections:
-            state = engine.tick(dt=0.2)  # Tick step
+            state = engine.tick(dt=0.2)
             await manager.broadcast(state)
         await asyncio.sleep(0.05)  # ~20 FPS stream
 
@@ -73,7 +73,7 @@ async def get_index():
     if os.path.exists(index_path):
         with open(index_path, "r", encoding="utf-8") as f:
             return HTMLResponse(content=f.read())
-    return HTMLResponse("<h1>Lucerne Traffic Flow Simulator Backend Running</h1><p>Frontend file index.html is loading...</p>")
+    return HTMLResponse("<h1>Lucerne Traffic Flow Simulator Backend Running</h1>")
 
 @app.get("/api/initial-data")
 async def get_initial_data():
@@ -90,16 +90,86 @@ async def get_initial_data():
         for e in data_loader.edges_list
     ]
     
-    gateways_payload = data_loader.gateway_details if hasattr(data_loader, "gateway_details") and data_loader.gateway_details else [
-        {"id": g_id, "name": data_loader.nodes_dict[g_id].get("gateway_name", "Gateway"), "weight": data_loader.nodes_dict[g_id].get("gateway_weight", 1.0), "lat": data_loader.nodes_dict[g_id]["lat"], "lon": data_loader.nodes_dict[g_id]["lon"]}
-        for g_id in data_loader.gateway_nodes if g_id in data_loader.nodes_dict
-    ]
-
     return {
         "edges": network_edges,
         "pois": data_loader.pois,
-        "gateways": gateways_payload
+        "gateways": data_loader.gateway_details
     }
+
+# Gateway Manager Pydantic Schemas
+class GatewayCreatePayload(BaseModel):
+    name: str
+    lat: float
+    lon: float
+    weight: float = 5.0
+    corridor_type: str = "secondary"
+
+class GatewayUpdatePayload(BaseModel):
+    name: Optional[str] = None
+    weight: Optional[float] = None
+    enabled: Optional[bool] = None
+    direction: Optional[str] = None
+
+@app.get("/api/gateways")
+async def get_gateways():
+    return data_loader.gateway_details
+
+@app.post("/api/gateways")
+async def create_custom_gateway(payload: GatewayCreatePayload):
+    nearest_node_id = data_loader.find_nearest_node(payload.lat, payload.lon)
+    if not nearest_node_id or nearest_node_id not in data_loader.nodes_dict:
+        raise HTTPException(status_code=400, detail="Could not snap to nearest road network node.")
+
+    node_data = data_loader.nodes_dict[nearest_node_id]
+    new_gw = {
+        "id": f"gw_custom_{nearest_node_id}",
+        "node_id": nearest_node_id,
+        "name": payload.name,
+        "corridor_type": payload.corridor_type,
+        "lat": node_data["lat"],
+        "lon": node_data["lon"],
+        "weight": float(payload.weight),
+        "direction": "both",
+        "capacity_veh_per_hr": int(payload.weight * 400),
+        "enabled": True,
+        "is_custom": True
+    }
+
+    # Add or update gateway
+    data_loader.gateway_details.append(new_gw)
+    data_loader.save_gateways_to_json()
+    engine.reload_gateways(data_loader.gateway_details)
+    return new_gw
+
+@app.put("/api/gateways/{gateway_id}")
+async def update_gateway(gateway_id: str, payload: GatewayUpdatePayload):
+    found = None
+    for gw in data_loader.gateway_details:
+        if gw["id"] == gateway_id:
+            if payload.name is not None: gw["name"] = payload.name
+            if payload.weight is not None: gw["weight"] = float(payload.weight)
+            if payload.enabled is not None: gw["enabled"] = bool(payload.enabled)
+            if payload.direction is not None: gw["direction"] = payload.direction
+            found = gw
+            break
+            
+    if not found:
+        raise HTTPException(status_code=404, detail="Gateway not found.")
+
+    data_loader.save_gateways_to_json()
+    engine.reload_gateways(data_loader.gateway_details)
+    return found
+
+@app.delete("/api/gateways/{gateway_id}")
+async def delete_gateway(gateway_id: str):
+    updated = [gw for gw in data_loader.gateway_details if gw["id"] != gateway_id]
+    if len(updated) == len(data_loader.gateway_details):
+        raise HTTPException(status_code=404, detail="Gateway not found.")
+
+    data_loader.gateway_details = updated
+    data_loader.save_gateways_to_json()
+    engine.reload_gateways(data_loader.gateway_details)
+    return {"status": "deleted", "id": gateway_id}
 
 class ParamPayload(BaseModel):
     spawn_rate: float = 2.0
@@ -176,7 +246,6 @@ async def websocket_endpoint(websocket: WebSocket):
     await manager.connect(websocket)
     try:
         while True:
-            # Handle incoming WebSocket commands if any
             data = await websocket.receive_text()
             cmd = json.loads(data)
             if cmd.get("action") == "toggle_block" and "edge_id" in cmd:

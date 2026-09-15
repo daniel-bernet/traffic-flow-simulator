@@ -54,6 +54,19 @@ class ODGenerator:
         )
         return vehicle
 
+    def reload_gateways(self, gateway_details):
+        """Hot-reload gateway nodes and weights from gateway details list."""
+        self.data_loader.gateway_details = gateway_details
+        self.data_loader.gateway_nodes = [g["node_id"] for g in gateway_details if g.get("enabled", True)]
+        for g in gateway_details:
+            n_id = g["node_id"]
+            if n_id in self.data_loader.nodes_dict:
+                self.data_loader.nodes_dict[n_id]["is_gateway"] = g.get("enabled", True)
+                self.data_loader.nodes_dict[n_id]["gateway_weight"] = g.get("weight", 1.0)
+                self.data_loader.nodes_dict[n_id]["gateway_name"] = g.get("name", "")
+        self.shortest_paths_cache.clear()
+        logger.info(f"Hot-reloaded {len(self.data_loader.gateway_nodes)} active gateways in ODGenerator.")
+
     def _select_weighted_gateway(self):
         """Pick a gateway node randomly, weighted by road hierarchy capacity (gateway_weight)."""
         gateways = self.data_loader.gateway_nodes
