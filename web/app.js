@@ -791,6 +791,9 @@ async function updateSignalSplit(signalId, newSplit) {
         if (sig) sig.green_split = parseFloat(newSplit);
         renderSignalMarkers();
         renderSignalsManagerList();
+    } catch (err) {
+        console.error("Failed to update traffic signal split:", err);
+    }
 }
 
 // ------------------------------------------
