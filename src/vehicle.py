@@ -1,3 +1,4 @@
+import random
 from enum import Enum
 import math
 
@@ -53,7 +54,8 @@ class Vehicle:
         self.accel_ms2 = 0.0         # current acceleration m/s^2
         self.status = "IN_TRANSIT"
         self.lane_index = 0          # assigned lane index (0 to lanes-1)
-        
+        self.lane_edge_id = None     # edge the current lane_index was drawn for
+
         self.lat = 0.0
         self.lon = 0.0
         self.heading = 0.0 # orientation degrees
@@ -70,7 +72,15 @@ class Vehicle:
             return self.route_edges[self.current_edge_idx]
         return None
 
-    def update_position(self, edge_dict, dt=1.0, lead_vehicle_dist_m=None, is_red_light=False, queue_offset_m=0.0):
+    def assign_lane(self, edge_dict):
+        """Draw a lane for this edge. Called once per edge entry, not per tick."""
+        lanes = max(1, edge_dict.get("lanes", 1))
+        self.lane_index = random.randint(0, lanes - 1)
+        self.lane_edge_id = edge_dict.get("edge_id")
+        return self.lane_index
+
+    def update_position(self, edge_dict, dt=1.0, lead_vehicle_dist_m=None, lead_vehicle_speed_ms=0.0,
+                        is_red_light=False, queue_offset_m=0.0):
         """
         Microscopic Intelligent Driver Model (IDM) position update.
         Computes continuous acceleration, deceleration, lead vehicle car-following, and red-light stopping.
@@ -82,7 +92,7 @@ class Vehicle:
         edge_length = edge_dict["length"]
         v_limit_ms = (edge_dict["maxspeed"] / 3.6) * self.props["speed_factor"]
 
-        # Ensure valid lane assignment
+        # Ensure valid lane assignment for this edge
         lanes = max(1, edge_dict.get("lanes", 1))
         if self.lane_index >= lanes:
             self.lane_index = random.randint(0, lanes - 1)
@@ -96,12 +106,20 @@ class Vehicle:
         # Determine effective distance to hurdle (lead vehicle or red signal stop line)
         dist_to_end_m = max(0.1, edge_length - self.distance_on_edge)
         
+        # A red signal is a stationary obstacle at the stop line; a lead vehicle moves at its own
+        # speed. Treating a moving leader as stationary (the previous behaviour) makes every
+        # follower in a platoon brake far harder than it should.
         if is_red_light and dist_to_end_m <= 80.0:
-            effective_gap = min(dist_to_end_m, lead_vehicle_dist_m if lead_vehicle_dist_m is not None else 1000.0)
-            v_lead = 0.0
+            stop_line_gap = dist_to_end_m
+            if lead_vehicle_dist_m is not None and lead_vehicle_dist_m < stop_line_gap:
+                effective_gap = max(0.5, lead_vehicle_dist_m)
+                v_lead = max(0.0, lead_vehicle_speed_ms)
+            else:
+                effective_gap = max(0.5, stop_line_gap)
+                v_lead = 0.0
         elif lead_vehicle_dist_m is not None:
             effective_gap = max(0.5, lead_vehicle_dist_m)
-            v_lead = 0.0
+            v_lead = max(0.0, lead_vehicle_speed_ms)
         else:
             effective_gap = 1000.0
             v_lead = self.speed_ms
@@ -117,6 +135,13 @@ class Vehicle:
         self.speed_ms = max(0.0, min(v_limit_ms, self.speed_ms + self.accel_ms2 * dt))
         move_dist = self.speed_ms * dt
         self.distance_on_edge += move_dist
+
+        # Hard stop-line constraint. IDM deceleration is clamped at -6 m/s^2, so from ~50 km/h a
+        # single large dt step can still carry a vehicle across the stop line. Without this, cars
+        # visibly run red lights.
+        if is_red_light and self.distance_on_edge >= edge_length:
+            self.distance_on_edge = edge_length - 0.1
+            self.speed_ms = 0.0
 
         # Calculate visual coordinates with physical queue spacing offset
         visual_dist = max(0.0, min(edge_length, self.distance_on_edge - queue_offset_m))

@@ -280,10 +280,14 @@ async def toggle_block(payload: ToggleBlockPayload):
     engine.toggle_blocked_edge(payload.edge_id)
     return {"status": "ok", "blocked_edges": list(engine.blocked_edges)}
 
+class ResetPayload(BaseModel):
+    clear_closures: bool = False
+
 @app.post("/api/reset")
-async def reset_simulation():
-    engine.reset()
-    return {"status": "ok"}
+async def reset_simulation(payload: ResetPayload = ResetPayload()):
+    """Reset vehicles and statistics. Road closures are kept unless clear_closures is set."""
+    engine.reset(clear_closures=payload.clear_closures)
+    return {"status": "ok", "blocked_edges": list(engine.blocked_edges)}
 
 @app.post("/api/pause")
 async def pause_simulation():

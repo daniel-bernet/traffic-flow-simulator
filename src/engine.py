@@ -27,6 +27,12 @@ class TrafficSimulationEngine:
         self.vehicle_id_counter = 0
         self.sim_time = 0.0  # simulation seconds
         self.is_paused = False
+
+        # Demand accounting. generate_vehicle() returns None for unroutable O-D pairs; those
+        # used to vanish silently, so spawn_rate overstated the demand actually loaded onto the
+        # network by ~25%. Both counters are reported in the state payload.
+        self.dropped_spawns = 0   # requested but unroutable
+        self.stranded_count = 0   # removed mid-trip because a closure cut off the destination
         
         # User tweakable parameters
         self.params = {
@@ -93,28 +99,101 @@ class TrafficSimulationEngine:
         else:
             self.blocked_edges.add(edge_id)
             logger.info(f"Blocked edge: {edge_id}")
-            # Trigger dynamic rerouting for vehicles currently aiming at or on this edge
-            self._reroute_affected_vehicles(edge_id)
+        # The route cache is keyed on O-D only, so it holds paths computed under the previous
+        # closure set. Without this, newly spawned vehicles keep planning through closed roads.
+        self.od_generator.invalidate_route_cache()
+        self._reroute_affected_vehicles()
 
-    def _reroute_affected_vehicles(self, blocked_edge_id: str):
+    def _reroute_affected_vehicles(self):
+        """Reroute every vehicle whose remaining path crosses a closed edge.
+
+        Rerouting starts from the vehicle's current position, not its origin. The previous
+        implementation replanned from `origin_id` and reset `current_edge_idx` to 0, which
+        teleported vehicles back to the start of their trip.
+        """
+        stranded = []
         for v_id, veh in self.active_vehicles.items():
-            if blocked_edge_id in veh.route_edges[veh.current_edge_idx:]:
-                new_route = self.od_generator.get_route_edges(
-                    origin_node=veh.origin_id,
-                    dest_node=veh.destination_id,
-                    current_blocked_edges=self.blocked_edges
-                )
-                if new_route:
-                    veh.route_edges = new_route
-                    veh.current_edge_idx = 0
-                    veh.distance_on_edge = 0.0
+            remaining = veh.route_edges[veh.current_edge_idx:]
+            if not any(e in self.blocked_edges for e in remaining):
+                continue
+            if not self._replan_from_current_position(veh):
+                stranded.append(v_id)
 
-    def reset(self):
+        # A vehicle with no remaining path to its destination is removed and counted, rather
+        # than being left to drive through the closure.
+        for v_id in stranded:
+            self.active_vehicles.pop(v_id, None)
+            self.stranded_count += 1
+
+    def _replan_from_current_position(self, veh) -> bool:
+        """Recompute a vehicle's route from the node it is currently heading towards.
+
+        Keeps the current edge as the head of the new route so the vehicle finishes the link it
+        is physically committed to. Returns False if no unblocked path to the destination exists.
+        """
+        curr_edge_id = veh.current_edge_id
+        if not curr_edge_id:
+            return False
+        curr_edge = self.edges_dict.get(curr_edge_id)
+        if not curr_edge:
+            return False
+
+        # Node the vehicle will reach at the end of its current edge.
+        from_node = curr_edge["v"]
+        if from_node == veh.destination_id:
+            veh.route_edges = [curr_edge_id]
+            veh.current_edge_idx = 0
+            return True
+
+        new_tail = self.od_generator.get_route_edges(
+            origin_node=from_node,
+            dest_node=veh.destination_id,
+            current_blocked_edges=self.blocked_edges
+        )
+        if not new_tail:
+            return False
+
+        veh.route_edges = [curr_edge_id] + new_tail
+        veh.current_edge_idx = 0
+        # distance_on_edge is deliberately preserved: the vehicle stays where it physically is.
+        return True
+
+    def _replan_from_node(self, veh, from_node: str) -> str:
+        """Recompute a vehicle's route from a junction it has just reached.
+
+        Returns "ARRIVED" if the junction is already the destination, "OK" if a new path was
+        found, or "STRANDED" if the closure leaves no route to the destination.
+        """
+        if from_node == veh.destination_id:
+            veh.status = "ARRIVED"
+            return "ARRIVED"
+        new_route = self.od_generator.get_route_edges(
+            origin_node=from_node,
+            dest_node=veh.destination_id,
+            current_blocked_edges=self.blocked_edges
+        )
+        if not new_route:
+            return "STRANDED"
+        veh.route_edges = new_route
+        veh.current_edge_idx = 0
+        veh.distance_on_edge = 0.0
+        veh.lane_edge_id = None
+        return "OK"
+
+    def reset(self, clear_closures: bool = False):
+        """Reset the simulation.
+
+        Road closures are preserved by default so a scenario survives a reset; pass
+        clear_closures=True to drop them as well.
+        """
         self.active_vehicles.clear()
         self.completed_trips.clear()
         self.sim_time = 0.0
         self.vehicle_id_counter = 0
-        self.blocked_edges.clear()
+        self.dropped_spawns = 0
+        self.stranded_count = 0
+        if clear_closures:
+            self.blocked_edges.clear()
         self.is_paused = False
         self._init_edge_stats()
 
@@ -134,34 +213,44 @@ class TrafficSimulationEngine:
 
         # 2. Advance Active Vehicles using IDM Microscopic Car-Following
         arrived_ids = []
-        
-        # Group vehicles by edge to compute gaps & queue spacing offsets
-        edge_vehicles = defaultdict(list)
+        stranded_ids = []
+
+        # Group vehicles by (edge, lane). Grouping by edge alone put every vehicle on a
+        # multi-lane road into a single car-following file, so a 3-lane arterial carried no more
+        # traffic than a 1-lane street.
+        lane_vehicles = defaultdict(list)
         for v_id, veh in self.active_vehicles.items():
             curr_edge_id = veh.current_edge_id
-            if not curr_edge_id or curr_edge_id in self.blocked_edges:
-                if not veh.advance_to_next_edge():
-                    continue
-                else:
-                    arrived_ids.append(v_id)
-                    continue
-            edge_vehicles[curr_edge_id].append(veh)
-
-        # Update each edge group with IDM lead vehicle gap & queue offset
-        for e_id, v_list in edge_vehicles.items():
-            v_list.sort(key=lambda x: x.distance_on_edge, reverse=True)
-            edge_dict = self.edges_dict.get(e_id)
-            if not edge_dict:
+            if not curr_edge_id:
+                # Ran past the end of its route: genuinely arrived.
+                arrived_ids.append(v_id)
                 continue
+            edge_dict = self.edges_dict.get(curr_edge_id)
+            if not edge_dict:
+                # Edge disappeared under it (AOI was redrawn): drop, do not count as a trip.
+                stranded_ids.append(v_id)
+                continue
+            # Vehicles already on a link that was closed under them stay on it and drive it out;
+            # they are not teleported across. Entry to a closed link is prevented downstream.
+            if veh.lane_edge_id != curr_edge_id:
+                veh.assign_lane(edge_dict)
+            lane_vehicles[(curr_edge_id, veh.lane_index)].append(veh)
+
+        # Update each lane group with IDM lead vehicle gap & queue offset
+        for (e_id, _lane), v_list in lane_vehicles.items():
+            v_list.sort(key=lambda x: x.distance_on_edge, reverse=True)
+            edge_dict = self.edges_dict[e_id]
 
             is_red = self.signal_manager.is_edge_red(e_id)
 
             for idx, veh in enumerate(v_list):
                 if idx == 0:
                     lead_dist = None
+                    lead_speed = 0.0
                 else:
                     lead_veh = v_list[idx - 1]
                     lead_dist = max(0.1, lead_veh.distance_on_edge - veh.distance_on_edge - lead_veh.props["length_meters"])
+                    lead_speed = lead_veh.speed_ms
 
                 queue_offset = idx * 6.0  # 6m physical spacing per vehicle queued behind
 
@@ -169,13 +258,21 @@ class TrafficSimulationEngine:
                     edge_dict=edge_dict,
                     dt=effective_dt,
                     lead_vehicle_dist_m=lead_dist,
+                    lead_vehicle_speed_ms=lead_speed,
                     is_red_light=is_red,
                     queue_offset_m=queue_offset
                 )
                 if edge_finished:
-                    arrived = veh.advance_to_next_edge()
-                    if arrived:
+                    if veh.advance_to_next_edge():
                         arrived_ids.append(veh.id)
+                    elif veh.current_edge_id in self.blocked_edges:
+                        # Next link on the plan is closed: replan from this junction rather than
+                        # driving into (and previously, straight through) the closure.
+                        outcome = self._replan_from_node(veh, edge_dict["v"])
+                        if outcome == "ARRIVED":
+                            arrived_ids.append(veh.id)
+                        elif outcome == "STRANDED":
+                            stranded_ids.append(veh.id)
 
         # 3. Clean up Arrived Vehicles & Check Parking Garages Arrival
         for veh_id in arrived_ids:
@@ -183,6 +280,11 @@ class TrafficSimulationEngine:
             if veh:
                 self.completed_trips.append(veh.total_travel_time)
                 self.parking_manager.handle_vehicle_arrival(veh.id, veh.destination_id)
+
+        # Vehicles cut off by a closure are removed without being counted as completed trips.
+        for veh_id in stranded_ids:
+            if self.active_vehicles.pop(veh_id, None):
+                self.stranded_count += 1
 
         # 4. Advance Parking Garages & Timetable Transit Buses
         self.parking_manager.tick(effective_dt)
@@ -275,10 +377,15 @@ class TrafficSimulationEngine:
             vehicle = self.od_generator.generate_vehicle(
                 vehicle_id=v_id,
                 flow_type=flow_type,
-                class_override=cls_override
+                class_override=cls_override,
+                blocked_edges=self.blocked_edges
             )
             if vehicle:
                 self.active_vehicles[v_id] = vehicle
+            else:
+                # Unroutable O-D pair. Counted rather than discarded silently so the reported
+                # demand matches what actually entered the network.
+                self.dropped_spawns += 1
 
     def get_simulation_state(self):
         """Returns JSON-serializable state dict for Web Socket transmission."""
@@ -332,6 +439,8 @@ class TrafficSimulationEngine:
             "active_vehicles_count": len(self.active_vehicles),
             "completed_trips_count": len(self.completed_trips),
             "avg_travel_time_sec": round(avg_travel_time, 1),
+            "dropped_spawns": self.dropped_spawns,
+            "stranded_count": self.stranded_count,
             "co2_kg_hr": round(co2_rate_kg_hr, 1),
             "fuel_l_hr": round(fuel_rate_l_hr, 1),
             "vehicles": vehicle_points,

@@ -19,7 +19,8 @@ else
 fi
 
 echo "Initializing / verifying Lucerne map data cache..."
-python3 -c "from src.data_loader import LucerneDataLoader; loader = LucerneDataLoader(); loader.load_data(use_cache=True)"
+echo "(first run has no cache and fetches ~4200 nodes from OpenStreetMap - allow 3-6 minutes)"
+python3 -m src.data_loader
 
 echo "Starting Lucerne Traffic Simulator Web App on http://localhost:8000 ..."
 exec uvicorn src.api:app --host 0.0.0.0 --port 8000
