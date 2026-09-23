@@ -1,4 +1,5 @@
 import logging
+import math
 import random
 from typing import List, Dict, Optional
 from src.vehicle import TrafficClass, Vehicle

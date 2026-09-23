@@ -2,6 +2,7 @@ import os
 import json
 import logging
 import math
+from datetime import datetime, timezone
 import osmnx as ox
 import networkx as nx
 import pandas as pd
@@ -15,6 +16,11 @@ DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
 CACHE_FILE = os.path.join(DATA_DIR, "lucerne_data_cache.json")
 AOI_FILE = os.path.join(DATA_DIR, "aoi_polygon.json")
 GATEWAYS_FILE = os.path.join(DATA_DIR, "gateways.json")
+
+# Bumped whenever the meaning of a cached field changes, so an existing cache built by an older
+# version is not silently reused. v2: `lanes` is per-direction. v3: merged OSM tags resolved
+# deterministically (min maxspeed, highest road class) instead of by arbitrary list position.
+CACHE_SCHEMA_VERSION = 3
 
 HIGHWAY_WEIGHTS = {
     'motorway': 10.0, 'motorway_link': 8.0,
@@ -43,10 +49,17 @@ class LucerneDataLoader:
         self.gateway_nodes = []
         self.gateway_details = []
         self.aoi_polygon_coords = DEFAULT_AOI_COORDS
-        
-    def load_data(self, use_cache=True):
+        self.provenance = {}
+
+    def load_data(self, use_cache=True, allow_fetch=True):
+        """Load the road network.
+
+        By default a missing cache triggers a live OpenStreetMap fetch. Pass allow_fetch=False to
+        fail loudly instead, so a batch run can never silently pick up a different network than
+        the one it was calibrated against.
+        """
         os.makedirs(DATA_DIR, exist_ok=True)
-        
+
         if use_cache and os.path.exists(CACHE_FILE):
             logger.info("Loading cached Lucerne master network & POI data...")
             try:
@@ -54,15 +67,23 @@ class LucerneDataLoader:
                     data = json.load(f)
                     self._reconstruct_from_json(data)
                     self._load_aoi_polygon_file()
-                    self.apply_aoi_clipping_and_gateways()
+                    self.apply_aoi_clipping_and_gateways(persist=False)
                     logger.info(f"Loaded {len(self.nodes_dict)} master nodes, {len(self.edges_list)} active AOI edges, "
                                 f"{len(self.pois)} POIs, {len(self.gateway_details)} AOI gateways.")
+                    logger.info(f"Network snapshot: {self.describe_provenance()}")
                     return True
             except Exception as e:
                 logger.warning(f"Failed to load cache: {e}. Re-fetching from OpenStreetMap...")
 
+        if not allow_fetch:
+            raise RuntimeError(
+                f"No usable network cache at '{CACHE_FILE}' and allow_fetch=False. "
+                f"Build one first with: python -m src.data_loader --rebuild"
+            )
+
         logger.info("Fetching expanded master regional road network (Lucerne + outer ring)...")
-        
+        logger.info("This queries the live OpenStreetMap Overpass API and typically takes 3-6 minutes.")
+
         try:
             ox.settings.use_cache = True
             ox.settings.log_console = False
@@ -84,12 +105,102 @@ class LucerneDataLoader:
 
         logger.info(f"Expanded master network retrieved: {len(self.graph.nodes)} nodes, {len(self.graph.edges)} edges.")
 
+        # Record which OSM snapshot this network came from. OSM changes continuously, so two
+        # rebuilds weeks apart produce different networks (an earlier snapshot of this area gave
+        # 36 gateways where a later one gave 33, with several speed limits changed). Without a
+        # recorded snapshot, results are not comparable across rebuilds.
+        self.provenance = {
+            "source": "OpenStreetMap via OSMnx graph_from_place",
+            "fetched_at_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "osmnx_version": getattr(ox, "__version__", "unknown"),
+            "places": places,
+            "network_type": "drive",
+            "simplify": True
+        }
+
         self._extract_network_structure()
         self._fetch_pois_and_landuse()
         self._load_aoi_polygon_file()
         self.apply_aoi_clipping_and_gateways()
         self._save_cache()
         return True
+
+    @staticmethod
+    def _first(value, default=None):
+        """OSM tags arrive as a scalar, or as a list when simplification merged several ways.
+
+        Taking element [0] of a merged list is NOT reproducible: the list order follows OSMnx's
+        traversal order, which varies between processes. Two rebuilds from the very same OSM data
+        produced 187 edges with different speed limits, which in turn changed how many boundary
+        gateways the >30 km/h rule found (33 vs 32 vs 35). Sorting first makes the pick stable.
+        """
+        if isinstance(value, list):
+            if not value:
+                return default
+            return sorted(value, key=str)[0]
+        return value if value is not None else default
+
+    @staticmethod
+    def _merged_maxspeed(value, default=50.0) -> float:
+        """Speed limit for a simplified edge that may span several OSM ways.
+
+        The most restrictive limit along the merged path governs it, and taking the minimum is
+        deterministic regardless of the order OSMnx merged the ways in.
+        """
+        candidates = value if isinstance(value, list) else [value]
+        parsed = []
+        for raw in candidates:
+            if raw is None:
+                continue
+            try:
+                parsed.append(float(str(raw).replace(" km/h", "").replace("mph", "").strip()))
+            except (ValueError, TypeError):
+                continue
+        return min(parsed) if parsed else default
+
+    @staticmethod
+    def _merged_highway(value, default="unclassified") -> str:
+        """Road class for a merged edge: the highest class present, ranked by HIGHWAY_WEIGHTS.
+
+        A corridor that is part primary and part secondary behaves like a primary, and ranking by
+        an explicit hierarchy is deterministic where list order is not.
+        """
+        candidates = [v for v in (value if isinstance(value, list) else [value]) if v]
+        if not candidates:
+            return default
+        return max(sorted(set(candidates)), key=lambda h: HIGHWAY_WEIGHTS.get(h, 1.0))
+
+    def _resolve_directional_lanes(self, data) -> int:
+        """Lane count for ONE direction of travel.
+
+        In OSM, a bare `lanes=*` on a two-way road counts both directions, but OSMnx copies the
+        tag verbatim onto each directed edge. Taking it at face value doubled the capacity of
+        every two-way street: 1817 edges in the Lucerne extract carried `lanes>=2`, giving
+        residential streets like Klosterstrasse 1200 veh/h per direction. `lanes:forward` and
+        `lanes:backward` are authoritative where present; otherwise a bare count on a two-way
+        road is halved.
+        """
+        reversed_flag = self._first(data.get("reversed"), False)
+        directional_key = "lanes:backward" if reversed_flag else "lanes:forward"
+        directional = self._first(data.get(directional_key))
+        if directional is not None:
+            try:
+                return max(1, int(float(directional)))
+            except (ValueError, TypeError):
+                pass
+
+        lanes_raw = self._first(data.get("lanes"), 1)
+        try:
+            total_lanes = max(1, int(float(lanes_raw)))
+        except (ValueError, TypeError):
+            return 1
+
+        oneway = self._first(data.get("oneway"), False)
+        is_oneway = oneway in (True, "yes", "true", "1", 1)
+        if is_oneway:
+            return total_lanes
+        # Two-way road with only a combined count: split it across the directions.
+        return max(1, total_lanes // 2)
 
     def _extract_network_structure(self):
         self.nodes_dict = {}
@@ -116,29 +227,10 @@ class LucerneDataLoader:
         edge_id_counter = 0
         for u, v, k, data in self.graph.edges(keys=True, data=True):
             length = float(data.get("length", 100.0))
-            maxspeed_raw = data.get("maxspeed", 50)
-            if isinstance(maxspeed_raw, list):
-                maxspeed_raw = maxspeed_raw[0]
-            try:
-                maxspeed = float(str(maxspeed_raw).replace(" km/h", "").replace("mph", ""))
-            except (ValueError, TypeError):
-                maxspeed = 50.0
-                
-            lanes_raw = data.get("lanes", 1)
-            if isinstance(lanes_raw, list):
-                lanes_raw = lanes_raw[0]
-            try:
-                lanes = int(lanes_raw)
-            except (ValueError, TypeError):
-                lanes = 1
-
-            highway = data.get("highway", "unclassified")
-            if isinstance(highway, list):
-                highway = highway[0]
-
-            name = data.get("name", f"Road {u}-{v}")
-            if isinstance(name, list):
-                name = name[0]
+            maxspeed = self._merged_maxspeed(data.get("maxspeed"), default=50.0)
+            lanes = self._resolve_directional_lanes(data)
+            highway = self._merged_highway(data.get("highway"))
+            name = self._first(data.get("name"), f"Road {u}-{v}")
 
             capacity_per_lane = 1200 if highway in ["motorway", "trunk", "primary"] else 600
             capacity = max(300, lanes * capacity_per_lane)
@@ -256,7 +348,7 @@ class LucerneDataLoader:
                 self.nodes_dict[nearest]["is_poi"] = True
                 self.nodes_dict[nearest]["weight_dest"] += 15.0
 
-    def apply_aoi_clipping_and_gateways(self, polygon_coords=None):
+    def apply_aoi_clipping_and_gateways(self, polygon_coords=None, persist=True):
         """
         Clips road graph strictly inside user-defined AOI Polygon.
         Computes Gateways as directed edges crossing AOI border with speed > 30 km/h.
@@ -368,7 +460,10 @@ class LucerneDataLoader:
                 self.nodes_dict[n_id]["gateway_name"] = g.get("name", "")
 
         logger.info(f"Applied AOI clipping: {len(self.edges_list)} active edges, {len(self.gateway_details)} gateways (>30 km/h).")
-        self.save_gateways_to_json()
+        # Only persist when the AOI actually changed. Previously every startup rewrote this
+        # tracked file, so merely launching the app produced a dirty working tree.
+        if persist:
+            self.save_gateways_to_json()
 
     def find_nearest_node(self, lat, lon):
         best_node = None
@@ -405,8 +500,18 @@ class LucerneDataLoader:
             except Exception as e:
                 logger.warning(f"Failed to load AOI file: {e}")
 
+    def describe_provenance(self) -> str:
+        """One-line summary of which OSM snapshot the loaded network came from."""
+        if not self.provenance:
+            return "unknown snapshot (cache predates provenance tracking; rebuild to record it)"
+        return (f"OSM fetched {self.provenance.get('fetched_at_utc', '?')} "
+                f"via OSMnx {self.provenance.get('osmnx_version', '?')}, "
+                f"{len(self.provenance.get('places', []))} municipalities")
+
     def _save_cache(self):
         data = {
+            "cache_schema_version": CACHE_SCHEMA_VERSION,
+            "provenance": self.provenance,
             "nodes": self.nodes_dict,
             "edges": self.all_edges_list,
             "pois": self.pois,
@@ -421,6 +526,13 @@ class LucerneDataLoader:
         logger.info(f"Saved processed Lucerne data to '{CACHE_FILE}'.")
 
     def _reconstruct_from_json(self, data):
+        cached_version = data.get("cache_schema_version", 1)
+        if cached_version != CACHE_SCHEMA_VERSION:
+            raise ValueError(
+                f"Cache schema v{cached_version} is stale (expected v{CACHE_SCHEMA_VERSION}); "
+                f"lane counts and capacities would be wrong."
+            )
+        self.provenance = data.get("provenance", {})
         self.nodes_dict = data["nodes"]
         self.all_edges_list = data["edges"]
         self.edges_list = list(self.all_edges_list)
@@ -433,6 +545,16 @@ class LucerneDataLoader:
 
 
 if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Build or inspect the Lucerne network cache.")
+    parser.add_argument("--rebuild", action="store_true",
+                        help="Force a fresh OpenStreetMap fetch, overwriting the existing cache.")
+    args = parser.parse_args()
+
     loader = LucerneDataLoader()
-    loader.load_data(use_cache=False)
-    print("DataLoader AOI test completed successfully!")
+    loader.load_data(use_cache=not args.rebuild)
+    print(f"Nodes: {len(loader.nodes_dict)}  Edges (master): {len(loader.all_edges_list)}  "
+          f"Edges (AOI): {len(loader.edges_list)}  POIs: {len(loader.pois)}  "
+          f"Gateways: {len(loader.gateway_details)}")
+    print(f"Snapshot: {loader.describe_provenance()}")

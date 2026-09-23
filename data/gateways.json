@@ -30,7 +30,7 @@
     {
       "id": "gw_aoi_1944924344",
       "node_id": "1944924344",
-      "name": "AOI Gateway: Neuenkirchstrasse (80 km/h)",
+      "name": "AOI Gateway: Neuenkirchstrasse (60 km/h)",
       "corridor_type": "primary",
       "lat": 47.08216040483456,
       "lon": 8.257017149915947,
@@ -56,7 +56,7 @@
     {
       "id": "gw_aoi_268126912",
       "node_id": "268126912",
-      "name": "AOI Gateway: Sackweidstrasse (50 km/h)",
+      "name": "AOI Gateway: Sackweidh\u00f6he (50 km/h)",
       "corridor_type": "residential",
       "lat": 47.033036184922246,
       "lon": 8.258213748468544,
@@ -80,22 +80,9 @@
       "is_custom": false
     },
     {
-      "id": "gw_aoi_401828238",
-      "node_id": "401828238",
-      "name": "AOI Gateway: Oberdierikonerstrasse (40 km/h)",
-      "corridor_type": "tertiary",
-      "lat": 47.09135038996896,
-      "lon": 8.366718800788174,
-      "weight": 2.0,
-      "direction": "both",
-      "capacity_veh_per_hr": 800,
-      "enabled": true,
-      "is_custom": false
-    },
-    {
       "id": "gw_aoi_1528887493",
       "node_id": "1528887493",
-      "name": "AOI Gateway: K10 (80 km/h)",
+      "name": "AOI Gateway: K10 (50 km/h)",
       "corridor_type": "primary",
       "lat": 47.05137647279752,
       "lon": 8.245336688970085,
@@ -121,7 +108,7 @@
     {
       "id": "gw_aoi_14834846",
       "node_id": "14834846",
-      "name": "AOI Gateway: Road 312514618-14834846 (120 km/h)",
+      "name": "AOI Gateway: Road 312514618-14834846 (100 km/h)",
       "corridor_type": "motorway",
       "lat": 47.08726173110831,
       "lon": 8.260532260564325,
@@ -197,19 +184,6 @@
       "is_custom": false
     },
     {
-      "id": "gw_aoi_413621334",
-      "node_id": "413621334",
-      "name": "AOI Gateway: Ober-Dottenberg (40 km/h)",
-      "corridor_type": "unclassified",
-      "lat": 47.075684009444856,
-      "lon": 8.373442146183514,
-      "weight": 4.0,
-      "direction": "both",
-      "capacity_veh_per_hr": 1600,
-      "enabled": true,
-      "is_custom": false
-    },
-    {
       "id": "gw_aoi_401880871",
       "node_id": "401880871",
       "name": "AOI Gateway: Hofmattrain (50 km/h)",
@@ -238,7 +212,7 @@
     {
       "id": "gw_aoi_1191431659",
       "node_id": "1191431659",
-      "name": "AOI Gateway: Udligenswilerstrasse (60 km/h)",
+      "name": "AOI Gateway: Udligenswilerstrasse (50 km/h)",
       "corridor_type": "secondary",
       "lat": 47.07016785000471,
       "lon": 8.37442104904088,
@@ -294,19 +268,6 @@
       "corridor_type": "unclassified",
       "lat": 47.05720688137184,
       "lon": 8.244317472603065,
-      "weight": 4.0,
-      "direction": "both",
-      "capacity_veh_per_hr": 1600,
-      "enabled": true,
-      "is_custom": false
-    },
-    {
-      "id": "gw_aoi_1528887594",
-      "node_id": "1528887594",
-      "name": "AOI Gateway: Grudligen (60 km/h)",
-      "corridor_type": "unclassified",
-      "lat": 47.06236605630156,
-      "lon": 8.246908282028388,
       "weight": 4.0,
       "direction": "both",
       "capacity_veh_per_hr": 1600,

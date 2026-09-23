@@ -7,6 +7,8 @@ from src.vehicle import TrafficClass, Vehicle
 logger = logging.getLogger("ODGenerator")
 
 class ODGenerator:
+    MAX_CACHED_ROUTES = 50000
+
     def __init__(self, data_loader):
         self.data_loader = data_loader
         self.nx_graph = self._build_networkx_graph()
@@ -24,7 +26,8 @@ class ODGenerator:
             G.add_edge(u, v, id=edge["edge_id"], weight=weight, length=edge["length"], maxspeed=edge["maxspeed"])
         return G
 
-    def generate_vehicle(self, vehicle_id: str, flow_type="internal_internal", class_override=None) -> Vehicle:
+    def generate_vehicle(self, vehicle_id: str, flow_type="internal_internal", class_override=None,
+                         blocked_edges=None) -> Vehicle:
         if not class_override:
             rand_val = random.random()
             if rand_val < 0.65:
@@ -42,7 +45,9 @@ class ODGenerator:
         if not origin_node or not dest_node or origin_node == dest_node:
             return None
 
-        route_edges = self.get_route_edges(origin_node, dest_node)
+        # Closures must be honoured at spawn time. Without this, every vehicle created after a
+        # road was closed still planned straight through it.
+        route_edges = self.get_route_edges(origin_node, dest_node, current_blocked_edges=blocked_edges)
         if not route_edges or len(route_edges) == 0:
             return None
 
@@ -99,9 +104,13 @@ class ODGenerator:
                 weights.append(1.0)
                 continue
             c_data = self.data_loader.nodes_dict[c_id]
-            dist = math.hypot(c_data["lat"] - o_lat, c_data["lon"] - o_lon)
+            # Degrees of longitude are ~0.68x a degree of latitude at Lucerne's 47degN. Using raw
+            # lat/lon in hypot() stretched east-west distances by ~50% and skewed the decay.
+            d_lat_km = (c_data["lat"] - o_lat) * 111.32
+            d_lon_km = (c_data["lon"] - o_lon) * 111.32 * math.cos(math.radians(o_lat))
+            dist_km = math.hypot(d_lat_km, d_lon_km)
             dest_w = c_data.get("weight_dest", 1.0)
-            gravity_w = dest_w / math.pow(dist + 0.005, 1.5)
+            gravity_w = dest_w / math.pow(dist_km + 0.5, 1.5)
             weights.append(max(0.01, gravity_w))
 
         return random.choices(sample_pool, weights=weights, k=1)[0]
@@ -141,6 +150,10 @@ class ODGenerator:
 
         return origin, dest
 
+    def invalidate_route_cache(self):
+        """Drop cached paths. Must be called whenever the set of closed edges changes."""
+        self.shortest_paths_cache.clear()
+
     def get_route_edges(self, origin_node: str, dest_node: str, current_blocked_edges=None):
         cache_key = f"{origin_node}_{dest_node}"
         if not current_blocked_edges and cache_key in self.shortest_paths_cache:
@@ -149,8 +162,11 @@ class ODGenerator:
         try:
             if current_blocked_edges and len(current_blocked_edges) > 0:
                 def weight_fn(u, v, d):
+                    # None makes NetworkX treat the edge as absent. A large finite penalty (the
+                    # previous 1e9) is only a deterrent: when the destination is reachable ONLY
+                    # through the closure, Dijkstra still returns a path straight through it.
                     if d.get("id") in current_blocked_edges:
-                        return 1e9
+                        return None
                     return d.get("weight", 1.0)
                 node_path = nx.shortest_path(self.nx_graph, source=origin_node, target=dest_node, weight=weight_fn)
             else:
@@ -164,6 +180,9 @@ class ODGenerator:
                     edge_ids.append(edge_data["id"])
 
             if not current_blocked_edges:
+                # Bounded so a long run cannot grow the cache without limit.
+                if len(self.shortest_paths_cache) >= self.MAX_CACHED_ROUTES:
+                    self.shortest_paths_cache.clear()
                 self.shortest_paths_cache[cache_key] = edge_ids
             return edge_ids
         except (nx.NetworkXNoPath, nx.NodeNotFound):

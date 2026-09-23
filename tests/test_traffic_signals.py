@@ -19,10 +19,11 @@ class TestTrafficSignals(unittest.TestCase):
         # Verify major Lucerne signals exist
         pilatus_sig = next((s for s in signals if "Pilatusplatz" in s["name"]), None)
         self.assertIsNotNone(pilatus_sig)
-        self.assertIn(pilatus_sig["cycle_time_sec"], [60.0, 80.0])
+        self.assertEqual(pilatus_sig["cycle_time_sec"], 60.0)
 
     def test_signal_phase_tick_and_red_check(self):
-        sig_mgr = self.engine.signal_manager
+        # Own manager: this test mutates signal timings and must not leak into sibling tests.
+        sig_mgr = TrafficSignalManager(self.data_loader)
         signals = sig_mgr.get_signals_state()
         test_sig = signals[0]
         
