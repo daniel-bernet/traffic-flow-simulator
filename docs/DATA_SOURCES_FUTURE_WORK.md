@@ -1,6 +1,13 @@
-# 🇨🇭 Swiss Open Geodata Sources for Lucerne Traffic Simulation
+# Swiss open data sources (research notes, not implemented)
 
-This document catalogs all publicly available Swiss government open data sources relevant to building a realistic traffic flow simulation for Lucerne, Switzerland.
+> **Status: research notes only.** None of the sources below is used by the code. This list was
+> compiled from quick web searches during the project and was never checked against the
+> sources themselves. Traffic volumes, quotas, layer names and URLs are **unverified and may be
+> wrong or out of date**. The values that ended up in the code (gateway weights, signal
+> locations, bus lines, parking garages, time-of-day curve) are placeholders, not taken from
+> these datasets. The project was abandoned before any of this was integrated.
+
+This document lists Swiss open data sources that a more realistic simulation of Lucerne would need.
 
 ---
 
@@ -25,7 +32,7 @@ The **Federal Spatial Data Infrastructure (BGDI)** provides free access to over 
 #### 🚦 Traffic Infrastructure (ASTRA)
 - **Layer ID**: `ch.astra.strassenverkehrsanlagen`
 - **Content**: Traffic signal infrastructure, ramp metering, gantry signs
-- **Use Case**: Validate and extend our traffic signal positions beyond the current 10 hardcoded intersections
+- **Use Case**: Validate and extend our traffic signal positions beyond the 25 hand-placed intersections
 - **Format**: GeoJSON via REST API
 - **Query Example**:
   ```
@@ -80,8 +87,7 @@ The **Federal Spatial Data Infrastructure (BGDI)** provides free access to over 
 | Baselstrasse (Littau) | Federal | ~10,000–14,000 | 4.0 |
 | Kriens entrance | Cantonal | ~8,000–12,000 | 4.0 |
 
-> [!IMPORTANT]
-> These DTV values should be used to proportionally weight our gateway spawn rates. The A2 North corridor carries ~35% of all traffic entering/leaving the Lucerne AOI.
+> These figures are unverified and were never used to weight the gateways.
 
 ---
 
@@ -163,7 +169,7 @@ The Canton of Lucerne follows an **"Open-By-Default"** policy for cantonal geoda
 #### 🚦 Traffic Signal Infrastructure (Lichtsignalanlagen)
 - **STAC Collection**: `LICHTSGN_DS` / `LICHTSGN_V2_PT`
 - **Content**: All cantonal traffic signal installations (position, type, operating status)
-- **Use Case**: Extend our 10 hardcoded signals to include ALL signalized intersections in the AOI
+- **Use Case**: Replace the 25 hand-placed signals with all signalised intersections in the study area
 - **Format**: GeoPackage, point geometry with attributes
 
 #### 📊 Cantonal Traffic Counting Stations (KTV Zählstellen)
@@ -230,13 +236,13 @@ lon, lat = transformer.transform(east_lv95, north_lv95)
 
 ---
 
-## 8. Integration Roadmap Priority
+## 8. Integration roadmap (never started)
 
 | Priority | Data Source | Effort | Impact |
 |----------|-----------|--------|--------|
 | 🔴 P0 | ASTRA DTV Gateway Calibration | Low | High — realistic inflow/outflow volumes |
 | 🔴 P0 | GTFS Static (VBL exact routes) | Medium | High — accurate bus routes & schedules |
-| 🟡 P1 | Canton Lichtsignalanlagen | Medium | High — extend from 10 to 50+ real signals |
+| 🟡 P1 | Canton Lichtsignalanlagen | Medium | High — replace the 25 hand-placed signals with real ones |
 | 🟡 P1 | DIDOK Stop Registry | Low | Medium — exact stop coordinates |
 | 🟡 P1 | PLS Real-Time Parking | Low | Medium — realistic initial occupancy |
 | 🟢 P2 | ASTRA Strassenverkehrsanlagen | Medium | Medium — federal signal infrastructure |
