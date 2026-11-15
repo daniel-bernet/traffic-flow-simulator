@@ -55,11 +55,11 @@
                 <span class="stat-value" id="val-avg-delay">0.0s</span>
             </div>
             <div class="stat-badge">
-                <span class="stat-label">🌱 CO₂ Rate</span>
+                <span class="stat-label" title="Rough estimate, illustrative only">🌱 CO₂ (illustr.)</span>
                 <span class="stat-value" id="val-co2-rate">0 kg/h</span>
             </div>
             <div class="stat-badge">
-                <span class="stat-label">⛽ Fuel Rate</span>
+                <span class="stat-label" title="Rough estimate, illustrative only">⛽ Fuel (illustr.)</span>
                 <span class="stat-value" id="val-fuel-rate">0 L/h</span>
             </div>
             <div class="stat-badge highlight">
@@ -201,9 +201,10 @@
         <div class="control-group">
             <label class="group-title">Basemap Tile Theme</label>
             <select id="select-tile-theme" class="select-glass" onchange="changeTileTheme()">
-                <option value="esri_dark">Esri World Dark Gray (Watermark-Free)</option>
+                <option value="carto_dark">CARTO Dark Matter</option>
+                <option value="carto_voyager">CARTO Voyager</option>
                 <option value="osm_standard">OpenStreetMap Standard</option>
-                <option value="carto_voyager">CartoDB Voyager (Clean)</option>
+                <option value="esri_dark">Esri World Dark Gray Canvas</option>
             </select>
         </div>
 

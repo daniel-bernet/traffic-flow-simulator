@@ -1,7 +1,6 @@
-import random
-from enum import Enum
 import math
 import random
+from enum import Enum
 
 class TrafficClass(str, Enum):
     PERSONAL = "personal"

@@ -1,7 +1,6 @@
 import logging
-import math
 import random
-from typing import List, Dict, Optional
+from typing import List, Dict
 from src.vehicle import TrafficClass, Vehicle
 
 logger = logging.getLogger("ParkingManager")
@@ -116,20 +115,6 @@ class ParkingManager:
 
     def reload_network(self):
         self._init_garages()
-
-    def get_nearest_garage_node(self, target_lat: float, target_lon: float) -> Optional[str]:
-        """Finds the nearest available parking garage node."""
-        best_node = None
-        min_dist = float("inf")
-
-        for g in self.garages.values():
-            if g.available_spaces > 0:
-                dist = math.hypot(g.lat - target_lat, g.lon - target_lon)
-                if dist < min_dist:
-                    min_dist = dist
-                    best_node = g.node_id
-
-        return best_node
 
     def tick(self, dt: float) -> List[dict]:
         """Advances entrance gate barriers and vehicle dwell timers."""

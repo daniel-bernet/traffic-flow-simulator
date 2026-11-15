@@ -63,11 +63,8 @@ function initMap() {
 
     L.control.zoom({ position: 'bottomright' }).addTo(map);
 
-    // Default Tile Server: Esri Dark Gray (Watermark Free)
-    baseTileLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
-        attribution: 'Tiles &copy; Esri &mdash; Esri, DeLorme, NAVTEQ',
-        maxZoom: 19
-    }).addTo(map);
+    // Default basemap: CARTO Dark Matter (OpenStreetMap data). Other themes in TILE_THEMES.
+    baseTileLayer = makeTileLayer('carto_dark').addTo(map);
 
     boundaryLayerGroup = L.layerGroup().addTo(map);
     poiLayerGroup = L.layerGroup().addTo(map);
@@ -144,29 +141,41 @@ function initKeyboardShortcuts() {
     });
 }
 
+// Basemap themes. Each provider's attribution is shown in the map corner, as their terms require.
+const OSM_ATTRIBUTION = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
+const TILE_THEMES = {
+    carto_dark: {
+        url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+        attribution: OSM_ATTRIBUTION + ' &copy; <a href="https://carto.com/attributions">CARTO</a>',
+        subdomains: 'abcd'
+    },
+    carto_voyager: {
+        url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
+        attribution: OSM_ATTRIBUTION + ' &copy; <a href="https://carto.com/attributions">CARTO</a>',
+        subdomains: 'abcd'
+    },
+    osm_standard: {
+        url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+        attribution: OSM_ATTRIBUTION
+    },
+    esri_dark: {
+        url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}',
+        attribution: 'Powered by <a href="https://www.esri.com">Esri</a> | Esri, HERE, Garmin, FAO, NOAA, USGS, ' + OSM_ATTRIBUTION + ', and the GIS User Community'
+    }
+};
+
+function makeTileLayer(theme) {
+    const t = TILE_THEMES[theme] || TILE_THEMES.carto_dark;
+    const opts = { attribution: t.attribution, maxZoom: 19 };
+    if (t.subdomains) opts.subdomains = t.subdomains;
+    return L.tileLayer(t.url, opts);
+}
+
 // Tile Theme Switcher
 function changeTileTheme() {
     const theme = document.getElementById('select-tile-theme').value;
     map.removeLayer(baseTileLayer);
-
-    if (theme === 'osm_standard') {
-        baseTileLayer = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-            maxZoom: 19
-        });
-    } else if (theme === 'carto_voyager') {
-        baseTileLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/">CARTO</a>',
-            subdomains: 'abcd',
-            maxZoom: 19
-        });
-    } else {
-        baseTileLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
-            attribution: 'Tiles &copy; Esri &mdash; Esri, DeLorme, NAVTEQ',
-            maxZoom: 19
-        });
-    }
-
+    baseTileLayer = makeTileLayer(theme);
     baseTileLayer.addTo(map);
 }
 

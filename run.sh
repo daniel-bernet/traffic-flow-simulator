@@ -23,4 +23,4 @@ echo "(first run has no cache and fetches ~4200 nodes from OpenStreetMap - allow
 python3 -m src.data_loader
 
 echo "Starting Lucerne Traffic Simulator Web App on http://localhost:8000 ..."
-exec uvicorn src.api:app --host 0.0.0.0 --port 8000
+exec uvicorn src.api:app --host 127.0.0.1 --port 8000
