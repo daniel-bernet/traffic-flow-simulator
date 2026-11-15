@@ -1,115 +1,117 @@
-# 🇨🇭 Lucerne Traffic Flow Simulator
+# Lucerne Traffic Flow Simulator
 
-An interactive, high-performance Python simulation software designed to model traffic flow, discover chokepoints, and analyze congestion dynamics across the city of Lucerne, Switzerland and its key regional gateways.
+An abandoned experiment: a browser-based traffic simulation of Lucerne, written entirely by AI coding agents, that looks convincing but is not a valid traffic model.
 
-![Lucerne Traffic Simulator](https://img.shields.io/badge/Python-3.12-blue) ![Framework](https://img.shields.io/badge/FastAPI-WebGL%2FLeaflet-emerald) ![GIS](https://img.shields.io/badge/OSMnx-NetworkX-orange)
+![The simulator at the 17:30 preset: a map of Lucerne with about 1,500 vehicle markers, the simulation controls on the left and map layers on the right](docs/screenshot.jpg)
 
----
+<!-- TODO: add the link to the note on dbernet.ch once it is published:
+     https://dbernet.ch/notes/vibe-coded-traffic-simulation/ -->
 
-## 🌟 Key Features
+## What and why
 
-* **Interactive Drag-and-Drop AOI Polygon Drawer & Graph Clipping**:
-  * Planners can draw custom **AOI Boundary Polygons** directly on the Leaflet map canvas using the **"✍️ Draw AOI"** tool.
-  * **Expanded Master Network**: Includes 11 core & outer ring municipalities (Lucerne, Ebikon, Emmen, Kriens, Horw, Meggen, Adligenswil, Dierikon, Buchrain, Malters, Rothenburg) with 4,204 nodes & 9,158 edges so drawn AOIs never hit "out of bounds".
-  * **"Undo Last Node" (`↩️ Undo Node`)**: Remove placed vertices during polygon creation.
-  * **Draggable Vertex Handles (`🖐️ Drag & Edit Handles`)**: Reshape polygon boundaries dynamically by dragging vertex handles or right-clicking to delete nodes.
-  * **Edge Midpoint Insertion**: Insert new polygon vertices by dragging out edge segment midpoints.
-  * **Real-Time Live Gateway Preview**: Client-side ray-casting calculates and renders glowing preview markers for $>30\text{ km/h}$ gateways live as polygon vertices are placed or dragged.
-  * Traffic calculations and road network physics are clipped strictly inside the defined AOI polygon.
+One Sunday evening the drive back into Lucerne was frustratingly congested, with no obvious
+reason. I wanted to know why, and I asked myself a second question: could I just throw compute
+and AI coding agents at the problem and find out?
 
-* **Boundary Crossing Gateway Extraction ($> 30\text{ km/h}$ Rule)**:
-  * Gateways are extracted where roads cross the border of the drawn AOI polygon with a speed limit **$> 30\text{ km/h}$**.
-  * Residential $20\text{--}30\text{ km/h}$ zones, alleyways, and footpaths are automatically filtered out.
-  * Internal roundabouts (e.g. *Seetalplatz*) and internal intersections are 100% mathematically immune from being marked as gateways.
+My part was the idea, the direction, the research and evaluating the results. I didn't write
+the code. The whole application was vibe-coded by AI coding agents, including the bug fixes in
+[PR #1](https://github.com/daniel-bernet/traffic-flow-simulator/pull/1) and the clean-up for
+publishing.
 
-* **Watermark-Free Basemap Tile Switcher**:
-  * Integrated **Esri World Dark Gray Canvas**, **OpenStreetMap Standard**, and **CartoDB Voyager** tile servers with zero `API KEY REQUIRED` watermarks.
+What it does:
 
-* **3 Required Traffic Flow Categories**:
-  1. **Internal ↔ Internal**: Resident commutes between residential neighborhoods, workplaces, and local POIs.
-  2. **Outside → Simulation Area (Inflow)**: Commuters, tourists, and freight entering from regional gateways.
-  3. **Simulation Area → Outside (Outflow)**: Outward traffic heading to highway portals.
+- Downloads the drivable road network of Lucerne and ten surrounding municipalities from
+  OpenStreetMap (about 4,200 nodes and 9,150 directed road segments).
+- Lets you draw a study area on the map. Roads faster than 30 km/h that cross its boundary
+  become gateways where traffic enters and leaves.
+- Spawns cars, coaches, trucks and buses with a gravity-style destination choice, moves them
+  with the Intelligent Driver Model, and streams their positions to a Leaflet map over
+  WebSockets.
+- Lets you close roads, retune 25 traffic signals, jump to a time of day and follow five
+  simplified bus lines and how late they run.
 
-* **Microscopic Intelligent Driver Model (IDM) Physics**:
-  * Continuous acceleration ($a_{\max} = 2.0\text{ m/s}^2$) and comfortable deceleration ($b_{\text{comf}} = 2.5\text{ m/s}^2$) with safe time headway spacing ($T = 1.2\text{ s}$).
-  * Vehicles accelerate smoothly and brake realistically behind lead vehicles and at red light signals.
+## Result
 
-* **Physical Bumper-to-Bumper Spatial Queue Spacing**:
-  * Prevents vehicle markers from overlapping at red lights and bottlenecks by enforcing $6.0\text{ m}$ visual queue offsets per vehicle.
-  * Form realistic queues of cars waiting at signals and chokepoints.
+No, it couldn't answer the question. It produced a convincing-looking interactive sandbox, not
+a valid model.
 
-* **Simulation Pause / Resume & 0.25x / 0.5x Slow-Motion Controls**:
-  * One-click header toggle button (`⏸️ Pause` / `▶️ Resume`) and `Spacebar` keyboard shortcut.
-  * Precise time controls with `0.25x`, `0.5x`, `1.0x`, `2.0x`, and `5.0x` simulation speed presets.
+The clearest evidence came from measuring it. Several features looked right on screen but
+didn't work until they were checked with numbers (PR #1): closed roads didn't stop traffic
+because vehicles teleported across them, about 23 % of requested trips vanished without being
+counted, and every vehicle drove in lane 0 because lane assignment never ran.
 
-* **Expanded High-Density Vehicle Scaling**:
-  * Maximum vehicle capacity expanded to **3,500+ active vehicles** with spawn rates up to **15.0 veh/s**, modeling dense rush hour traffic.
+The lesson I take from it: AI coding agents make it fast to build something that looks like a
+simulation. Turning it into a valid model needs domain knowledge, real data and validation,
+and the agents didn't supply any of those.
 
-* **Multi-Class Vehicle Dynamics**:
-  * 🚗 **Personal Cars** (1.0 PCE): Standard commuter dynamics & dynamic shortest path routing.
-  * 🚌 **Tourism Coaches** (1.5 PCE): Cautious speeds, high attraction to Kapellbrücke, Lion Monument, KKL, and Hotels.
-  * 🚚 **Logistics / Freight** (2.0 PCE): Capped urban speeds, targeted towards commercial hubs & supermarkets.
-  * 🚍 **Public Buses** (2.0 PCE): Dedicated transit corridors connecting main hubs.
+## Limitations
 
-* **Public Transit Bus Line Timetables & Delay Tracking (VBL Lucerne)**:
-  * Models **5 core VBL public bus lines** (Line 1: 6 min headway, Line 6, Line 12, Line 14, Line 24).
-  * Calculates real-time **Schedule Delay / Lateness (minutes)** for each line based on traffic congestion.
-  * Dedicated **VBL Bus Transit Dashboard** in the sidebar with live delay status tags (🟢 *On Time*, 🟡 *Minor Delay*, 🔴 *Heavy Delay*).
-  * **Click to Highlight Route**: Click any bus line card to highlight its full physical route on the map canvas.
+The main reasons it can't explain a real traffic jam (details in
+[docs/TRAFFIC_SIMULATION_MODEL.md](docs/TRAFFIC_SIMULATION_MODEL.md)):
 
-* **Environmental $\text{CO}_2$ & Fuel Emissions Analytics**:
-  * Live status header tracking estimated $\text{CO}_2$ emission rates ($\text{kg/hr}$) and fuel consumption ($\text{L/hr}$) across all active vehicles, incorporating stop-and-go congestion penalties.
+- **No congestion feedback.** Vehicles pick the fastest route for empty roads when they start
+  and never change it because of traffic. The congestion formula (BPR) only colours the map.
+- **Dimensionally incorrect V/C ratio.** It divides the number of vehicles on a segment by a
+  share of its hourly capacity, so long segments look congested at normal densities.
+- **No queue spillback.** Vehicles only react to the vehicle ahead on the same segment, so a
+  queue never backs up through a junction.
+- **Uncontrolled junctions.** Apart from 25 hand-placed signals, about 2,000 junctions have no
+  control; vehicles pass through without yielding.
+- **Uncalibrated clock.** "1.0x" runs roughly three to four times faster than real time and
+  varies with machine load.
+- **Random land use.** Homes and workplaces are a random 60/40 split of all network nodes.
+- **Synthetic weekday demand.** One time-of-day curve for every day; there is no Sunday.
+- **Placeholder data.** The bus lines, signal locations, parking garages, gateway weights and
+  the time-of-day curve are unverified values from quick web searches, not from official data.
+- The CO₂ and fuel figures in the header are illustrative only and far too high.
+- Network counts vary with the OpenStreetMap snapshot; every rebuild downloads current data.
 
-* **BPR Delay Congestion Model & Bottleneck Detection**:
-  * Dynamic travel time computed per road segment using the **Bureau of Public Roads (BPR) formula**:
-    $$T_e = T_{e,0} \left[ 1 + 0.15 \left( \frac{V_e}{C_e} \right)^4 \right]$$
-  * Dynamic edge color coding (Green $\to$ Yellow $\to$ Orange $\to$ Red).
-  * Real-time **Chokepoint Leaderboard** highlighting top 5 congested road segments.
+## Status
 
-* **Interactive Dark Glassmorphism Web GUI**:
-  * Real-time WebGL/Leaflet particle movement streaming at ~20 FPS via WebSockets.
-  * **Instant Effect Layer & Vehicle Filters**: Checkboxes to toggle POIs, Gateways, Congestion Lines, or filter map rendering to isolate specific vehicle classes (e.g. view **Freight Trucks ONLY**).
-  * **Interactive Legend**: Click any legend row to highlight or isolate road segments matching that specific congestion level on screen.
-  * **Interactive Road Closures**: Click any road segment on the map to block/unblock it and watch vehicles dynamically reroute in real time!
+Abandoned. There will be no further development: I don't have the domain knowledge or the
+data it would need, and my interest and time went elsewhere.
 
----
+## How to run
 
-## 🚀 Quick Start Guide
+Requires Python 3 (tested with 3.12) on Linux or macOS, and an internet connection for the
+first start.
 
-### Prerequisites
-* Linux / macOS / Windows WSL2
-* Python 3.10+
-* `git`
+```bash
+git clone https://github.com/daniel-bernet/traffic-flow-simulator.git
+cd traffic-flow-simulator
+./run.sh
+```
 
-### Installation & Launching
+`run.sh` creates a virtual environment, installs the dependencies, downloads and caches the
+road network (3–6 minutes the first time) and serves the app at http://localhost:8000. If
+OpenStreetMap's Overpass API is busy, the download is retried and then stops with an error;
+run `python -m src.data_loader --rebuild` later to try again.
 
-1. **Clone the repository**:
-   ```bash
-   git clone <your-repository-url>
-   cd traffic-flow-simulator
-   ```
+Tests (after the first start, which builds the network cache):
 
-2. **Run the Launcher Script**:
-   ```bash
-   ./run.sh
-   ```
-   *`run.sh` will automatically create the `.venv` virtual environment, install dependencies, build/load the Lucerne network cache, and start the web application.*
+```bash
+source .venv/bin/activate
+python -m unittest
+```
 
-3. **Open the Simulator in your Browser**:
-   Navigate to:
-   ```text
-   http://localhost:8000
-   ```
+## Documentation
 
----
+- [Simulation model](docs/TRAFFIC_SIMULATION_MODEL.md): what the engine computes and where it falls short
+- [Study area and gateways](docs/GATEWAY_SPECIFICATION.md)
+- [API and user interface](docs/API_AND_GUI_GUIDE.md)
+- [Data sources (research notes, not implemented)](docs/DATA_SOURCES_FUTURE_WORK.md)
+- [Data files and OpenStreetMap attribution](data/README.md)
 
-## 📚 Detailed Documentation (`docs/`)
+## Licence
 
-* 🚪 [**Gateway & AOI Specification**](docs/GATEWAY_SPECIFICATION.md): AOI polygon drawing, graph clipping, $> 30\text{ km/h}$ gateway extraction, and REST API.
-* 🚘 [**Traffic Simulation Model**](docs/TRAFFIC_SIMULATION_MODEL.md): BPR congestion formulas, vehicle kinematics, and dynamic rerouting.
-* 💻 [**API & GUI User Guide**](docs/API_AND_GUI_GUIDE.md): REST endpoints, WebSocket JSON schema, and interface controls.
+- Code: [MIT](LICENSE), © 2026 Daniel Bernet.
+- Documentation: [CC BY 4.0](LICENSE-docs.md), © 2026 Daniel Bernet.
+- `data/gateways.json` is derived from OpenStreetMap data and available under the
+  [ODbL 1.0](https://opendatacommons.org/licenses/odbl/1-0/).
 
----
+## Credits
 
-## 📜 License
-MIT License - Open for urban research and traffic engineering analysis.
+- Road network and map data © [OpenStreetMap contributors](https://www.openstreetmap.org/copyright), ODbL 1.0, downloaded with [OSMnx](https://github.com/gboeing/osmnx).
+- Map tiles: OpenStreetMap Standard © OpenStreetMap contributors (used in the screenshot); Esri World Dark Gray Canvas, powered by Esri.
+- Libraries: [NetworkX](https://networkx.org), [Shapely](https://shapely.readthedocs.io), [GeoPandas](https://geopandas.org), [FastAPI](https://fastapi.tiangolo.com), [Uvicorn](https://www.uvicorn.org), [Leaflet](https://leafletjs.com) (loaded from unpkg), the [Outfit](https://fonts.google.com/specimen/Outfit) font (loaded from Google Fonts).
+- Traffic models: the Intelligent Driver Model (Treiber, Hennecke and Helbing, 2000) and the Bureau of Public Roads volume-delay function.
