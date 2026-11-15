@@ -52,5 +52,6 @@ survive a study-area change but are kept in memory only and are lost when the se
 
 ## 6. Basemaps
 
-The map can show CARTO Dark Matter (default), CARTO Voyager, OpenStreetMap Standard or the Esri
-World Dark Gray Canvas. Each shows its provider's attribution.
+The map can show the Esri World Dark Gray Canvas (default) or OpenStreetMap Standard. Each shows
+its provider's attribution. Both work without an API key; the CARTO basemaps that earlier
+versions offered now require one and were removed.

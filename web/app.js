@@ -63,8 +63,8 @@ function initMap() {
 
     L.control.zoom({ position: 'bottomright' }).addTo(map);
 
-    // Default basemap: CARTO Dark Matter (OpenStreetMap data). Other themes in TILE_THEMES.
-    baseTileLayer = makeTileLayer('carto_dark').addTo(map);
+    // Default basemap: Esri World Dark Gray Canvas (no API key needed). Other themes in TILE_THEMES.
+    baseTileLayer = makeTileLayer('esri_dark').addTo(map);
 
     boundaryLayerGroup = L.layerGroup().addTo(map);
     poiLayerGroup = L.layerGroup().addTo(map);
@@ -142,18 +142,9 @@ function initKeyboardShortcuts() {
 }
 
 // Basemap themes. Each provider's attribution is shown in the map corner, as their terms require.
+// CARTO basemaps were removed: without an API key they now show an "API key required" watermark.
 const OSM_ATTRIBUTION = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
 const TILE_THEMES = {
-    carto_dark: {
-        url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-        attribution: OSM_ATTRIBUTION + ' &copy; <a href="https://carto.com/attributions">CARTO</a>',
-        subdomains: 'abcd'
-    },
-    carto_voyager: {
-        url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
-        attribution: OSM_ATTRIBUTION + ' &copy; <a href="https://carto.com/attributions">CARTO</a>',
-        subdomains: 'abcd'
-    },
     osm_standard: {
         url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
         attribution: OSM_ATTRIBUTION
@@ -165,7 +156,7 @@ const TILE_THEMES = {
 };
 
 function makeTileLayer(theme) {
-    const t = TILE_THEMES[theme] || TILE_THEMES.carto_dark;
+    const t = TILE_THEMES[theme] || TILE_THEMES.esri_dark;
     const opts = { attribution: t.attribution, maxZoom: 19 };
     if (t.subdomains) opts.subdomains = t.subdomains;
     return L.tileLayer(t.url, opts);
