@@ -4,7 +4,10 @@ from typing import Dict, List, Set, Optional
 
 logger = logging.getLogger("TrafficSignalManager")
 
-# Major Key Intersections in Lucerne with custom names
+# Hand-placed signal locations in Lucerne. UNVERIFIED PLACEHOLDER VALUES, NOT AUTHORITATIVE.
+# Names and coordinates come from quick web searches and map reading; each point is snapped to
+# the nearest network node. Phase plans are generic (two phases, 60/75/90 s by approach count),
+# not the real signal programmes.
 MAJOR_LUCERNE_SIGNALS = [
     {"name": "Pilatusplatz Signal", "lat": 47.0490, "lon": 8.3035},
     {"name": "Kasernenplatz Signal", "lat": 47.0515, "lon": 8.3005},

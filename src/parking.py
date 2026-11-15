@@ -5,6 +5,8 @@ from src.vehicle import TrafficClass, Vehicle
 
 logger = logging.getLogger("ParkingManager")
 
+# Parking garages in Lucerne. UNVERIFIED PLACEHOLDER VALUES, NOT AUTHORITATIVE.
+# Names, coordinates, capacities and fees come from quick web searches.
 LUCERNE_PARKING_GARAGES_DEF = [
     {
         "id": "park_bahnhof",

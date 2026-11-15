@@ -11,8 +11,10 @@ from src.parking import ParkingManager
 
 logger = logging.getLogger("SimulationEngine")
 
-# 24-hour diurnal traffic demand curve (hourly multiplier)
-# Based on typical Swiss urban traffic patterns from ASTRA counting data
+# 24-hour diurnal traffic demand curve (hourly multiplier).
+# UNVERIFIED PLACEHOLDER VALUES, NOT AUTHORITATIVE. The shape (weekday peaks at 08:00 and
+# 17:00) came from quick web searches, not from measured counts. There is one curve for
+# every day of the week; weekends are not modelled.
 # Index 0 = midnight (00:00), Index 23 = 23:00
 DIURNAL_DEMAND_CURVE = [
     0.15,  # 00:00 - minimal night traffic

@@ -25,6 +25,8 @@ AOI_FILE = os.path.join(DATA_DIR, "aoi_polygon.json")
 # deterministically (min maxspeed, highest road class) instead of by arbitrary list position.
 CACHE_SCHEMA_VERSION = 3
 
+# Relative weight per OSM road class, used to rank merged tags and to weight gateways.
+# UNVERIFIED PLACEHOLDER VALUES, NOT AUTHORITATIVE.
 HIGHWAY_WEIGHTS = {
     'motorway': 10.0, 'motorway_link': 8.0,
     'trunk': 8.0, 'trunk_link': 7.0,
@@ -65,29 +67,13 @@ DEFAULT_AOI_COORDS = [
     [47.004857194771745, 8.299827575683596]
 ]
 
-# ASTRA DTV (Durchschnittlicher Täglicher Verkehr) calibrated gateway weights
-# Proportional to real-world Annual Average Daily Traffic from ASTRA counting stations
-# Source: ch.astra.strassenverkehrszaehlung-uebergeordnet (geo.admin.ch)
-CALIBRATED_GATEWAY_WEIGHTS = {
-    # Motorway corridors (highest volumes)
-    'motorway': 10.0,       # A2, A14: 55,000-110,000 veh/day
-    'motorway_link': 8.0,   # Motorway ramps/interchanges
-    'trunk': 8.0,           # National roads / expressways
-    'trunk_link': 7.0,
-    # Primary corridors (major arterials)
-    'primary': 6.0,         # Haldenstrasse, Maihofstrasse: 14,000-22,000 veh/day
-    'primary_link': 5.0,
-    # Secondary corridors (cantonal roads)
-    'secondary': 4.0,       # Kriens entrance, Littau: 8,000-14,000 veh/day
-    'secondary_link': 3.0,
-    # Tertiary (local collectors)
-    'tertiary': 2.0,        # Local access roads: 3,000-8,000 veh/day
-}
-
-# Named corridor DTV multipliers for specific roads (applied on top of highway class weights)
-NAMED_CORRIDOR_DTV = {
-    'A2': 1.5,              # A2 Motorway: ~100K veh/day, highest in Lucerne region
-    'A14': 1.2,             # A14 Motorway: ~60K veh/day
+# Gateway weights are the road-class weights in HIGHWAY_WEIGHTS, adjusted for a few named
+# corridors below. UNVERIFIED PLACEHOLDER VALUES, NOT AUTHORITATIVE.
+# The multipliers were picked by hand from figures found in quick web searches; they are not
+# calibrated against ASTRA or cantonal traffic counts.
+NAMED_CORRIDOR_MULTIPLIERS = {
+    'A2': 1.5,
+    'A14': 1.2,
     'Haldenstrasse': 1.3,   # Major eastbound arterial to Meggen/Küssnacht
     'Zürichstrasse': 1.1,   # Federal road to Ebikon
     'Maihofstrasse': 1.1,   # Important access to eastern Lucerne
@@ -424,6 +410,7 @@ class LucerneDataLoader:
             self.nodes_dict[n_id]["weight_dest"] += 5.0
 
     def _add_fallback_pois(self):
+        # Used only when the OSM POI query fails. Hand-entered approximate coordinates.
         fallback_landmarks = [
             {"name": "Bahnhof Luzern (Main Station)", "category": "Train Station", "lat": 47.0502, "lon": 8.3103},
             {"name": "Kapellbrücke (Chapel Bridge)", "category": "Historic Attraction", "lat": 47.0516, "lon": 8.3073},
@@ -500,14 +487,14 @@ class LucerneDataLoader:
 
             target_node_id = v_id if direction == "INFLOW" else u_id
             highway = edge["highway"]
-            # Use ASTRA DTV-calibrated weights (proportional to real traffic volumes)
-            weight = CALIBRATED_GATEWAY_WEIGHTS.get(highway, HIGHWAY_WEIGHTS.get(highway, 4.0))
+            # Road-class weight (unverified placeholder values, see HIGHWAY_WEIGHTS)
+            weight = HIGHWAY_WEIGHTS.get(highway, 4.0)
             road_name = edge["name"]
 
-            # Apply named corridor DTV multiplier for specific known roads
-            for corridor_name, dtv_mult in NAMED_CORRIDOR_DTV.items():
+            # Apply the named-corridor multiplier (unverified placeholder values)
+            for corridor_name, multiplier in NAMED_CORRIDOR_MULTIPLIERS.items():
                 if corridor_name.lower() in road_name.lower():
-                    weight = round(weight * dtv_mult, 1)
+                    weight = round(weight * multiplier, 1)
                     break
 
             portal_name = f"AOI Gateway: {road_name} ({int(edge['maxspeed'])} km/h)"

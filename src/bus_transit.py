@@ -6,7 +6,9 @@ from src.vehicle import TrafficClass, Vehicle
 
 logger = logging.getLogger("BusTransitManager")
 
-# VBL Lucerne Public Bus Line Definitions (Stops with target coordinates & headways)
+# Simplified versions of five VBL bus lines. UNVERIFIED PLACEHOLDER VALUES, NOT AUTHORITATIVE.
+# Stops, coordinates and headways come from quick web searches, not from the official GTFS
+# timetable; routes are shortest paths between the listed stops.
 VBL_BUS_LINES_DEF = [
     {
         "id": "vbl_line_1",
