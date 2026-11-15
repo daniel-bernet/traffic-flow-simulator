@@ -2,6 +2,7 @@ import os
 import json
 import logging
 import math
+import time
 from datetime import datetime, timezone
 import osmnx as ox
 import networkx as nx
@@ -15,7 +16,9 @@ logger = logging.getLogger("DataLoader")
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
 CACHE_FILE = os.path.join(DATA_DIR, "lucerne_data_cache.json")
 AOI_FILE = os.path.join(DATA_DIR, "aoi_polygon.json")
-GATEWAYS_FILE = os.path.join(DATA_DIR, "gateways.json")
+# data/gateways.json is a reference snapshot of the gateways the default study area produced
+# (OSM data of September 2026). The app never reads or writes it: gateways are always derived
+# from the cached network, and custom gateways added in the UI live in memory only.
 
 # Bumped whenever the meaning of a cached field changes, so an existing cache built by an older
 # version is not silently reused. v2: `lanes` is per-direction. v3: merged OSM tags resolved
@@ -109,6 +112,7 @@ class LucerneDataLoader:
         self.gateway_details = []
         self.aoi_polygon_coords = DEFAULT_AOI_COORDS
         self.provenance = {}
+        self.poi_source = "unknown"
 
     def load_data(self, use_cache=True, allow_fetch=True):
         """Load the road network.
@@ -126,7 +130,7 @@ class LucerneDataLoader:
                     data = json.load(f)
                     self._reconstruct_from_json(data)
                     self._load_aoi_polygon_file()
-                    self.apply_aoi_clipping_and_gateways(persist=False)
+                    self.apply_aoi_clipping_and_gateways()
                     logger.info(f"Loaded {len(self.nodes_dict)} master nodes, {len(self.edges_list)} active AOI edges, "
                                 f"{len(self.pois)} POIs, {len(self.gateway_details)} AOI gateways.")
                     logger.info(f"Network snapshot: {self.describe_provenance()}")
@@ -156,11 +160,11 @@ class LucerneDataLoader:
             "Adligenswil, Switzerland", "Dierikon, Switzerland", "Buchrain, Switzerland", 
             "Malters, Switzerland", "Rothenburg, Switzerland"
         ]
-        try:
-            self.graph = ox.graph_from_place(places, network_type="drive", simplify=True)
-        except Exception as e:
-            logger.warning(f"ox.graph_from_place multi-place failed: {e}. Falling back to regional place query...")
-            self.graph = ox.graph_from_place(self.place_name, network_type="drive", simplify=True)
+        # No silent fallback: a failed multi-place query used to fall back to the city of Lucerne
+        # alone (~1,200 nodes, 2 gateways instead of ~4,200 nodes, ~32 gateways) while still
+        # reporting 11 municipalities. Overpass failures are usually transient, so retry and
+        # then stop with a clear error instead of building a much smaller network.
+        self.graph = self._fetch_graph_with_retry(places)
 
         logger.info(f"Expanded master network retrieved: {len(self.graph.nodes)} nodes, {len(self.graph.edges)} edges.")
 
@@ -174,15 +178,40 @@ class LucerneDataLoader:
             "osmnx_version": getattr(ox, "__version__", "unknown"),
             "places": places,
             "network_type": "drive",
-            "simplify": True
+            "simplify": True,
+            "nodes": len(self.graph.nodes),
+            "edges": len(self.graph.edges),
         }
 
         self._extract_network_structure()
         self._fetch_pois_and_landuse()
+        self.provenance["poi_source"] = self.poi_source
+        self.provenance["poi_count"] = len(self.pois)
         self._load_aoi_polygon_file()
         self.apply_aoi_clipping_and_gateways()
         self._save_cache()
         return True
+
+    @staticmethod
+    def _fetch_graph_with_retry(places, attempts=3, wait_sec=20):
+        """Fetch the drive network for all places, retrying transient Overpass failures.
+
+        Raises RuntimeError after the last attempt rather than returning a smaller network.
+        """
+        last_error = None
+        for attempt in range(1, attempts + 1):
+            try:
+                return ox.graph_from_place(places, network_type="drive", simplify=True)
+            except Exception as e:  # Overpass/Nominatim errors surface as several exception types
+                last_error = e
+                logger.warning(f"OSM fetch attempt {attempt}/{attempts} failed: {e}")
+                if attempt < attempts:
+                    time.sleep(wait_sec * attempt)
+        raise RuntimeError(
+            f"Could not fetch the road network for {len(places)} places from OpenStreetMap after "
+            f"{attempts} attempts (last error: {last_error}). The Overpass API is probably busy; "
+            f"try again later with: python -m src.data_loader --rebuild"
+        )
 
     @staticmethod
     def _first(value, default=None):
@@ -333,7 +362,9 @@ class LucerneDataLoader:
         }
         
         self.pois = []
+        self.poi_source = "osm"
         try:
+            # Note: POIs are only queried for the city of Lucerne, not the other 10 municipalities.
             pois_gdf = ox.features_from_place(self.place_name, tags=poi_tags)
             for idx, row in pois_gdf.iterrows():
                 name = row.get("name")
@@ -371,11 +402,14 @@ class LucerneDataLoader:
                     })
                     self.nodes_dict[nearest_node]["is_poi"] = True
                     self.nodes_dict[nearest_node]["weight_dest"] += 10.0
-        except Exception:
+        except Exception as e:
+            logger.warning(f"POI query failed ({e}); using the built-in fallback landmark list.")
             self._add_fallback_pois()
+            self.poi_source = "fallback_list"
 
         if len(self.pois) == 0:
             self._add_fallback_pois()
+            self.poi_source = "fallback_list"
 
         all_node_ids = list(self.nodes_dict.keys())
         np.random.seed(42)
@@ -407,7 +441,7 @@ class LucerneDataLoader:
                 self.nodes_dict[nearest]["is_poi"] = True
                 self.nodes_dict[nearest]["weight_dest"] += 15.0
 
-    def apply_aoi_clipping_and_gateways(self, polygon_coords=None, persist=True):
+    def apply_aoi_clipping_and_gateways(self, polygon_coords=None):
         """
         Clips road graph strictly inside user-defined AOI Polygon.
         Computes Gateways as directed edges crossing AOI border with speed > 30 km/h.
@@ -526,10 +560,6 @@ class LucerneDataLoader:
                 self.nodes_dict[n_id]["gateway_name"] = g.get("name", "")
 
         logger.info(f"Applied AOI clipping: {len(self.edges_list)} active edges, {len(self.gateway_details)} gateways (>30 km/h).")
-        # Only persist when the AOI actually changed. Previously every startup rewrote this
-        # tracked file, so merely launching the app produced a dirty working tree.
-        if persist:
-            self.save_gateways_to_json()
 
     def find_nearest_node(self, lat, lon):
         best_node = None
@@ -540,14 +570,6 @@ class LucerneDataLoader:
                 min_dist = dist
                 best_node = n_id
         return best_node
-
-    def save_gateways_to_json(self):
-        data = {
-            "version": "1.0",
-            "gateways": self.gateway_details
-        }
-        with open(GATEWAYS_FILE, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2)
 
     def _save_aoi_polygon_file(self):
         data = {
@@ -570,9 +592,12 @@ class LucerneDataLoader:
         """One-line summary of which OSM snapshot the loaded network came from."""
         if not self.provenance:
             return "unknown snapshot (cache predates provenance tracking; rebuild to record it)"
-        return (f"OSM fetched {self.provenance.get('fetched_at_utc', '?')} "
-                f"via OSMnx {self.provenance.get('osmnx_version', '?')}, "
-                f"{len(self.provenance.get('places', []))} municipalities")
+        p = self.provenance
+        return (f"OSM fetched {p.get('fetched_at_utc', '?')} "
+                f"via OSMnx {p.get('osmnx_version', '?')}, "
+                f"{len(p.get('places', []))} municipalities, "
+                f"{p.get('nodes', '?')} nodes / {p.get('edges', '?')} edges, "
+                f"POIs from {p.get('poi_source', '?')}")
 
     def _save_cache(self):
         data = {

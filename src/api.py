@@ -222,7 +222,6 @@ async def create_custom_gateway(payload: GatewayCreatePayload):
     }
 
     data_loader.gateway_details.append(new_gw)
-    data_loader.save_gateways_to_json()
     engine.reload_gateways(data_loader.gateway_details)
     return new_gw
 
@@ -241,7 +240,6 @@ async def update_gateway(gateway_id: str, payload: GatewayUpdatePayload):
     if not found:
         raise HTTPException(status_code=404, detail="Gateway not found.")
 
-    data_loader.save_gateways_to_json()
     engine.reload_gateways(data_loader.gateway_details)
     return found
 
@@ -252,7 +250,6 @@ async def delete_gateway(gateway_id: str):
         raise HTTPException(status_code=404, detail="Gateway not found.")
 
     data_loader.gateway_details = updated
-    data_loader.save_gateways_to_json()
     engine.reload_gateways(data_loader.gateway_details)
     return {"status": "deleted", "id": gateway_id}
 
