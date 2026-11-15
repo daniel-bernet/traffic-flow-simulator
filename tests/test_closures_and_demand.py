@@ -149,8 +149,11 @@ class TestClosuresAndDemand(unittest.TestCase):
                   if len(vs) >= 3 and self.engine.edges_dict[e]["lanes"] >= 2]
         if not shared:
             self.skipTest("no multi-lane edge carried 3+ vehicles in this run")
-        _edge_id, vehicles = shared[0]
-        self.assertGreater(len({v.lane_index for v in vehicles}), 1)
+        # Lanes are drawn at random, so a single edge with 3 vehicles on 2 lanes lands them all in
+        # one lane 25% of the time (this assertion used to check shared[0] only and was flaky).
+        # Before the fix every vehicle was in lane 0, so one mixed edge anywhere proves the point.
+        mixed = [e for e, vs in shared if len({v.lane_index for v in vs}) > 1]
+        self.assertTrue(mixed, f"all {len(shared)} busy multi-lane edges had a single lane in use")
 
 
 class TestVehicleKinematics(unittest.TestCase):

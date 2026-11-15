@@ -19,7 +19,12 @@ class TestTrafficSignals(unittest.TestCase):
         # Verify major Lucerne signals exist
         pilatus_sig = next((s for s in signals if "Pilatusplatz" in s["name"]), None)
         self.assertIsNotNone(pilatus_sig)
-        self.assertEqual(pilatus_sig["cycle_time_sec"], 60.0)
+
+        # Cycle length follows the number of approaches (90 s for 4+, 75 s for 3, else 60 s).
+        # The approach count depends on the OSM snapshot, so assert the rule, not a fixed value.
+        approaches = len(pilatus_sig["phase_a_edges"]) + len(pilatus_sig["phase_b_edges"])
+        expected = 90.0 if approaches >= 4 else 75.0 if approaches >= 3 else 60.0
+        self.assertEqual(pilatus_sig["cycle_time_sec"], expected)
 
     def test_signal_phase_tick_and_red_check(self):
         # Own manager: this test mutates signal timings and must not leak into sibling tests.
