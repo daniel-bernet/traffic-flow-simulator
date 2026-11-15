@@ -113,5 +113,5 @@ python -m unittest
 
 - Road network and map data © [OpenStreetMap contributors](https://www.openstreetmap.org/copyright), ODbL 1.0, downloaded with [OSMnx](https://github.com/gboeing/osmnx).
 - Map tiles: OpenStreetMap Standard © OpenStreetMap contributors (used in the screenshot); Esri World Dark Gray Canvas, powered by Esri.
-- Libraries: [NetworkX](https://networkx.org), [Shapely](https://shapely.readthedocs.io), [GeoPandas](https://geopandas.org), [FastAPI](https://fastapi.tiangolo.com), [Uvicorn](https://www.uvicorn.org), [Leaflet](https://leafletjs.com) (loaded from unpkg), the [Outfit](https://fonts.google.com/specimen/Outfit) font (loaded from Google Fonts).
+- Libraries: [NetworkX](https://networkx.org), [Shapely](https://shapely.readthedocs.io), [GeoPandas](https://geopandas.org), [FastAPI](https://fastapi.tiangolo.com), [Uvicorn](https://github.com/encode/uvicorn), [Leaflet](https://leafletjs.com) (loaded from unpkg), the [Outfit](https://fonts.google.com/specimen/Outfit) font (loaded from Google Fonts).
 - Traffic models: the Intelligent Driver Model (Treiber, Hennecke and Helbing, 2000) and the Bureau of Public Roads volume-delay function.
